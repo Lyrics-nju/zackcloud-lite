@@ -92,6 +92,7 @@ describe("upstream resilience and privacy", () => {
     const response = await createHandler(fetcher)(request("/sub/test-a"), env);
     expect(response.status).toBe(502);
     expect(await response.json()).toEqual({ error: "upstream_unavailable" });
+    expect(response.headers.get("x-zackcloud-upstream-diagnostic")).toBeNull();
   });
 
   it("aborts a timed-out upstream request", async () => {
@@ -106,7 +107,15 @@ describe("upstream resilience and privacy", () => {
     expect(await response.json()).toEqual({ error: "upstream_unavailable" });
   });
 
-  it.each(["", "   ", "<html>not a subscription</html>", "random garbage"])("rejects unsupported content safely", async (body) => {
+  it("classifies an empty upstream response without exposing the reason by default", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response("   "));
+    const response = await createHandler(fetcher)(request("/sub/test-a"), env);
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: "upstream_unavailable" });
+    expect(response.headers.get("x-zackcloud-upstream-diagnostic")).toBeNull();
+  });
+
+  it.each(["<html>not a subscription</html>", "random garbage"])("rejects unsupported content safely", async (body) => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(body));
     const response = await createHandler(fetcher)(request("/sub/test-a"), env);
     expect(response.status).toBe(502);
@@ -119,6 +128,27 @@ describe("upstream resilience and privacy", () => {
     const body = await response.text();
     expect(body).not.toContain(env.UPSTREAM_SUBSCRIPTION_URL);
     expect(body).not.toContain("test-a");
+  });
+
+  it.each([
+    [403, "http_403"],
+    [404, "http_404"],
+    [429, "http_429"],
+    [503, "http_5xx"],
+  ])("exposes only safe reason %s in staging diagnostics", async (status, reason) => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response("not exposed", { status }));
+    const response = await createHandler(fetcher)(request("/sub/test-a"), { ...env, STAGING_DIAGNOSTICS: "1" });
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ error: "upstream_unavailable" });
+    expect(response.headers.get("x-zackcloud-upstream-diagnostic")).toBe(reason);
+    expect(response.headers.get("x-zackcloud-upstream-diagnostic")).not.toContain("http://");
+  });
+
+  it("reports network_error safely in staging diagnostics", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockRejectedValue(new Error("private host detail"));
+    const response = await createHandler(fetcher)(request("/sub/test-a"), { ...env, STAGING_DIAGNOSTICS: "1" });
+    expect(response.headers.get("x-zackcloud-upstream-diagnostic")).toBe("network_error");
+    expect(await response.json()).toEqual({ error: "upstream_unavailable" });
   });
 
   it("forwards only whitelisted subscription metadata", async () => {

@@ -3,5 +3,13 @@
   "name": "zackcloud-lite",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-28",
-  "workers_dev": true
+  "workers_dev": true,
+  "env": {
+    "staging": {
+      "name": "zackcloud-lite-staging",
+      "vars": {
+        "STAGING_DIAGNOSTICS": "1"
+      }
+    }
+  }
 }

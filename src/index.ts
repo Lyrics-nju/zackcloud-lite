@@ -1,5 +1,6 @@
 import { convertSubscription, UnsupportedSubscriptionError } from "./converter";
 import { fetchUpstream, UpstreamError } from "./upstream";
+import type { UpstreamFailureReason } from "./upstream";
 import type { Env, Fetcher } from "./types";
 import { isTokenAllowed } from "./auth";
 
@@ -15,10 +16,18 @@ const SECURITY_HEADERS = {
   "x-frame-options": "DENY",
 };
 
-const json = (body: unknown, status = 200): Response => new Response(JSON.stringify(body), {
-  status,
-  headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...SECURITY_HEADERS },
-});
+const json = (body: unknown, status = 200, extraHeaders?: HeadersInit): Response => {
+  const headers = new Headers({ "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...SECURITY_HEADERS });
+  if (extraHeaders) new Headers(extraHeaders).forEach((value, name) => headers.set(name, value));
+  return new Response(JSON.stringify(body), { status, headers });
+};
+
+function upstreamUnavailable(reason: UpstreamFailureReason, env: Env): Response {
+  const headers = env.STAGING_DIAGNOSTICS === "1"
+    ? { "x-zackcloud-upstream-diagnostic": reason }
+    : undefined;
+  return json({ error: "upstream_unavailable" }, 502, headers);
+}
 
 function safeSubscriptionHeaders(upstream: Response): Headers {
   const headers = new Headers({
@@ -54,10 +63,10 @@ export function createHandler(fetcher: Fetcher = fetch) {
 
     try {
       const upstream = await fetchUpstream(env.UPSTREAM_SUBSCRIPTION_URL, fetcher);
-      const output = convertSubscription(await upstream.text(), upstream.headers.get("content-type"));
-      return new Response(output, { headers: safeSubscriptionHeaders(upstream) });
+      const output = convertSubscription(upstream.body, upstream.response.headers.get("content-type"));
+      return new Response(output, { headers: safeSubscriptionHeaders(upstream.response) });
     } catch (error) {
-      if (error instanceof UpstreamError) return json({ error: "upstream_unavailable" }, 502);
+      if (error instanceof UpstreamError) return upstreamUnavailable(error.reason, env);
       if (error instanceof UnsupportedSubscriptionError) return json({ error: "unsupported_subscription_format" }, 502);
       return json({ error: "subscription_processing_failed" }, 502);
     }

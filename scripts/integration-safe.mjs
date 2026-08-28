@@ -28,8 +28,9 @@ const values = parseDevVars(await readFile(new URL("../.dev.vars", import.meta.u
 const upstreamUrl = values.get("UPSTREAM_SUBSCRIPTION_URL");
 if (!upstreamUrl) throw new Error("UPSTREAM_SUBSCRIPTION_URL is not configured");
 
-const response = await fetchUpstream(upstreamUrl, fetch);
-const originalText = await response.text();
+const upstream = await fetchUpstream(upstreamUrl, fetch);
+const response = upstream.response;
+const originalText = upstream.body;
 const format = detectSubscriptionFormat(originalText);
 assert.equal(format, "CLASH_YAML");
 
