@@ -1,0 +1,2 @@
+UPSTREAM_SUBSCRIPTION_URL=https://example.invalid/sub
+ALLOWED_TOKENS=test-a,test-b
