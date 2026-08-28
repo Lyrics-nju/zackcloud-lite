@@ -1,6 +1,6 @@
 {
   "name": "zackcloud-lite",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,19 +8,26 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "integration:safe": "node --experimental-strip-types scripts/integration-safe.mjs",
     "security:scan": "node scripts/security-scan.mjs",
-    "deploy:dry-run": "wrangler deploy --dry-run --outdir dist"
+    "security-scan": "node scripts/security-scan.mjs",
+    "update:dry-run": "tsx scripts/update-subscription.ts --dry-run --source=local",
+    "update:local": "tsx scripts/update-subscription.ts --source=local",
+    "update:ci": "tsx scripts/update-subscription.ts --source=env",
+    "setup:kv": "tsx scripts/setup-kv.ts",
+    "verify:staging": "tsx scripts/verify-staging.ts",
+    "deploy:dry-run": "wrangler deploy --dry-run --env staging --outdir dist"
   },
   "dependencies": {
     "yaml": "^2.8.1"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "latest",
+    "@types/node": "latest",
     "@eslint/js": "latest",
     "eslint": "latest",
     "typescript": "latest",
     "typescript-eslint": "latest",
+    "tsx": "latest",
     "vitest": "latest",
     "wrangler": "latest"
   },

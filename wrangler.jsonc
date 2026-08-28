@@ -7,9 +7,12 @@
   "env": {
     "staging": {
       "name": "zackcloud-lite-staging",
-      "vars": {
-        "STAGING_DIAGNOSTICS": "1"
-      }
+      "kv_namespaces": [
+        {
+          "binding": "SUBSCRIPTION_STORE",
+          "id": "5aae504939bb46289a56c41a92014690"
+        }
+      ]
     }
   }
 }

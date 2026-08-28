@@ -1,55 +1,104 @@
 # ZackCloud Lite（扎克云 Lite）
 
-ZackCloud Lite V0.2 是供少数朋友免费使用的私人订阅整理/分发服务，不是代理服务器。
+ZackCloud Lite V0.3 是供少数朋友免费使用的私人订阅整理与静态分发服务。Cloudflare Worker 只分发预生成配置，不承担代理流量，也不在朋友刷新订阅时访问上游。
 
-订阅获取路径：
+## 三条数据流
 
-```text
-朋友 → Cloudflare Worker（只获取、整理、返回订阅）→ 获得 Mihomo 配置
-```
-
-实际代理流量始终是：
+订阅更新：
 
 ```text
-朋友的 Clash / Mihomo → 直接连接原上游节点 → Internet
+Updater → upstream → converter → validator → Cloudflare KV
 ```
 
-Worker 不承载、不转发、不检查也不保存 VLESS、Hysteria2、Trojan、Shadowsocks 或其他代理流量。
+用户刷新订阅：
 
-## V0.2 功能
+```text
+Clash / Mihomo → Cloudflare Worker → token auth → KV snapshot
+```
 
-- `GET /health`：无环境信息的健康检查。
-- `GET /`：私人服务说明页。
-- `GET /sub/:token`：统一返回整理后的 Clash/Mihomo YAML。
-- 使用 `clash.meta` User-Agent 获取真实上游提供的完整 Clash YAML。
-- 节点只修改 `name`；其余已知和未知连接字段原样保留。
-- 识别 15 个常见地区并稳定编号，未识别节点归入“其他”。
-- 生成自动选择、手动选择、故障转移以及非空地区代理组。
-- 仅透传 `subscription-userinfo`、`profile-update-interval` 两个上游 metadata header。
-- 支持旧版 `ALLOWED_TOKENS` 和可选 `FRIENDS_CONFIG_JSON`。
-- 上游超时、异常状态、HTML、空响应和未知格式统一返回安全的 `502`。
+真实代理流量：
 
-当前不支持 Base64/URI 或 sing-box 转换。格式探测器可以识别它们，但真实上游使用合适 User-Agent 后会直接提供 Clash YAML，因此 V0.2 没有引入不必要的协议解析器。
+```text
+Clash / Mihomo → 直接连接原上游 proxy node → Internet
+```
 
-## 本地开发
+开发者电脑不需要常开。GitHub updater 可用时每 6 小时自动更新；如果 GitHub runner 被上游拒绝，可以偶尔在本地运行 Publisher，朋友继续读取 KV 中的 last-known-good snapshot。
 
-需要 Node.js 20 或更新版本。
+## V0.3 功能
+
+- `GET /health`：返回服务名和 `0.3.0` 版本，不暴露 KV 或上游状态。
+- `GET /`：私人服务中文首页。
+- `GET /sub/:token`：验证朋友后读取 `SUBSCRIPTION_STORE` 的 `subscription:current`。
+- Snapshot 严格验证 schema、YAML、代理数量和 SHA-256。
+- 订阅支持强 ETag；匹配 `If-None-Match` 时返回 `304`。
+- 仅从 snapshot 透传 `subscription-userinfo` 和 `profile-update-interval`。
+- KV 缺失、JSON 损坏、schema 不支持、YAML 为空或 hash 不匹配统一返回安全的 `503`，绝不实时回源。
+- `FRIENDS_CONFIG_JSON` 支持启用和过期时间；`ALLOWED_TOKENS` 仅作为 legacy 兼容。
+- Publisher 在覆盖 current 前验证全部节点非名称字段、名称唯一性、代理组引用和 metadata 白名单。
+- 上游请求使用 `clash.meta` User-Agent，限制 10 秒和 5 MiB。
+
+架构取舍详见 [docs/design-v0.3.md](docs/design-v0.3.md)。
+
+## 强制 WSL 开发环境
+
+本项目位于 Windows D 盘，但所有 Node/npm/Vitest/Wrangler 命令必须从 WSL 执行，避免 Windows 与 Linux 原生依赖混装：
 
 ```powershell
-npm install
-Copy-Item .dev.vars.example .dev.vars
-npm run dev
+wsl.exe bash -lc 'cd "/mnt/d/扎克云/zackcloud-lite" && npm ci'
+wsl.exe bash -lc 'cd "/mnt/d/扎克云/zackcloud-lite" && npm test'
 ```
 
-`.dev.vars` 已被 Git 忽略。它只能保存在本机，不要发送、提交或粘贴其中内容。
+进入 WSL 后也可以直接运行：
 
-环境变量：
+```bash
+cd "/mnt/d/扎克云/zackcloud-lite"
+npm ci
+npm test
+npm run typecheck
+npm run lint
+npm run security-scan
+npm run deploy:dry-run
+```
 
-- `UPSTREAM_SUBSCRIPTION_URL`：真实上游订阅地址，生产环境必须使用 Worker Secret。
-- `ALLOWED_TOKENS`：逗号分隔 token，保留用于向后兼容。
-- `FRIENDS_CONFIG_JSON`：可选朋友配置。有效朋友需要 `enabled: true`，且 `expiresAt` 为 `null` 或未来的 ISO 时间。
+`deploy:dry-run` 已明确指定 staging 环境，不会出现多环境歧义，也不会部署。
 
-示例文件 [.dev.vars.example](.dev.vars.example) 只包含假值。朋友配置示例：
+## 本地 Publisher
+
+`.dev.vars` 只保存在本机并被 Git 忽略。其中的 `UPSTREAM_SUBSCRIPTION_URL` 仅供 Publisher 使用，不再是 Worker 运行时依赖。
+
+只构建和验证，不写 KV：
+
+```bash
+npm run update:dry-run
+```
+
+验证成功并发布到 staging KV：
+
+```bash
+npm run update:local
+```
+
+命令只输出 HTTP 状态、格式、数量、地区/协议聚合、验证结果和 hash 前 8 位；不会输出上游地址、节点、订阅正文或完整 hash。临时 snapshot 保存在系统临时目录，权限为 `0600`，结束时主动删除。
+
+## Staging KV 初始化
+
+先检查现有 namespace：
+
+```bash
+npm run setup:kv
+```
+
+只有确认需要创建时才执行：
+
+```bash
+npm run setup:kv -- --create
+```
+
+脚本只创建或复用 `zackcloud-lite-staging-SUBSCRIPTION_STORE`，并更新 staging 的 `SUBSCRIPTION_STORE` binding；不会删除资源、创建 production Worker 或修改 DNS。
+
+## Friends 配置
+
+推荐把以下内容作为 staging Worker Secret `FRIENDS_CONFIG_JSON`，真实值不得写入仓库：
 
 ```json
 [
@@ -62,52 +111,36 @@ npm run dev
 ]
 ```
 
-朋友的名称和有效期只用于服务端判断，不会出现在响应中。无效、禁用、过期和未知 token 都统一返回 `404`。
+未知、禁用、过期和格式非法的 token 都统一返回 `404`。旧的 `ALLOWED_TOKENS` 暂时继续支持。
 
-## 测试与检查
+## GitHub Actions updater
 
-```powershell
-npm test
-npm run typecheck
-npm run lint
-npm run deploy:dry-run
-```
+[.github/workflows/update-subscription.yml](.github/workflows/update-subscription.yml) 支持手动触发和每 6 小时运行。仓库需要配置：
 
-经过授权的本机可以额外运行安全真实集成测试：
+- `UPSTREAM_SUBSCRIPTION_URL`
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_KV_NAMESPACE_ID`
 
-```powershell
-npm run integration:safe
-```
+朋友 token 不进入 GitHub Actions。Updater 若遇到 `http_403`、`http_429`、`timeout`、`network_error`、`response_too_large` 或格式错误，会输出安全原因、失败退出且不写 KV。
 
-该脚本只输出格式、数量和 PASS/FAIL 聚合信息；不会输出订阅地址、节点、凭据或订阅正文。验证成功后，它会将最后一次转换结果保存到项目外的用户本地数据目录，并尝试设置为仅当前用户可读写。此文件只用于本地人工验证，Worker V0.2 尚未实现运行时缓存或故障容灾。
+## Staging 部署顺序
 
-## Cloudflare Secret 与部署准备
+安全迁移顺序固定为：
 
-人工确认 Cloudflare 账户后，分别设置需要的 Secret：
+1. 创建或复用 staging KV namespace。
+2. 运行本地 Publisher，写入第一个验证通过的 snapshot。
+3. `npx wrangler deploy --env staging` 部署 V0.3 Worker。
+4. 通过本机现有 HTTP 代理验证 health、无效 token、有效 token 和 ETag `304`。
+5. 全部确认后，才可删除 staging Worker 中旧的 `UPSTREAM_SUBSCRIPTION_URL` Secret。
 
-```powershell
-npx wrangler secret put UPSTREAM_SUBSCRIPTION_URL
-npx wrangler secret put ALLOWED_TOKENS
-npx wrangler secret put FRIENDS_CONFIG_JSON
-```
+不得把这些命令改为 top-level 或 production 部署。
 
-可以先做不会部署的本地构建：
+## 安全边界
 
-```powershell
-npm run deploy:dry-run
-```
-
-只有人工确认后才能执行 `npx wrangler deploy`。本项目开发流程不会自动登录 Cloudflare、创建 Worker、修改 DNS 或执行生产部署。
-
-## 转换和安全边界
-
-转换器位于 `src/converter/`。检测器负责判断输入格式，Clash 转换器负责重命名与代理组生成。地区编号取决于上游节点顺序，因此同一份上游输入的结果唯一、稳定且可预测。
-
-安全措施包括：
-
-- 不记录 token、上游 URL、上游正文或异常内部信息。
-- 不向客户端返回上游 URL、原始错误正文或上游网站 header。
-- token 限制长度并拒绝控制字符和路径分隔符。
-- 订阅、JSON 和首页响应带有基础安全 header。
+- 不记录请求 URL、token、上游地址、订阅正文、节点或代理凭据。
+- 不在项目目录保存真实 snapshot，不上传订阅 Artifact。
+- 不透传上游网站、Location、Cookie、Server 或异常正文。
+- 不使用 D1、R2、Durable Objects、数据库或完整管理后台。
+- 不实现 Xray、Mihomo、VLESS、Trojan、WireGuard、TCP、UDP 或 WebSocket 流量中转。
 - `.dev.vars`、`.env`、`node_modules`、`dist` 和 Wrangler 临时文件均被 Git 忽略。
-- 不使用数据库、KV、D1、R2、Durable Objects、Redis、Docker 或前端框架。

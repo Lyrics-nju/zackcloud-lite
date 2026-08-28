@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchUpstream, UpstreamError } from "../src/upstream";
+import { fetchUpstream, UPSTREAM_MAX_BYTES, UpstreamError } from "../src/upstream";
 
 const fakeUrl = "https://upstream.example.invalid/sub";
 
@@ -63,5 +63,17 @@ describe("safe upstream failure reasons", () => {
     const result = await fetchUpstream(fakeUrl, fetcher);
     expect(result.body).toBe("proxies: []");
     expect(result.response.status).toBe(200);
+  });
+
+  it("rejects an oversized declared response before reading it", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response("small", {
+      headers: { "content-length": String(UPSTREAM_MAX_BYTES + 1) },
+    }));
+    await expectReason(fetchUpstream(fakeUrl, fetcher), "response_too_large");
+  });
+
+  it("rejects an oversized streamed response", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(new Uint8Array(UPSTREAM_MAX_BYTES + 1)));
+    await expectReason(fetchUpstream(fakeUrl, fetcher), "response_too_large");
   });
 });

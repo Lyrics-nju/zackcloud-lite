@@ -1,8 +1,7 @@
-import { convertSubscription, UnsupportedSubscriptionError } from "./converter";
-import { fetchUpstream, UpstreamError } from "./upstream";
-import type { UpstreamFailureReason } from "./upstream";
-import type { Env, Fetcher } from "./types";
+import type { Env } from "./types";
 import { isTokenAllowed } from "./auth";
+import { parseSnapshot, SNAPSHOT_KEY } from "./snapshot";
+import type { SnapshotMetadata } from "./snapshot";
 
 const HTML = `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -22,32 +21,26 @@ const json = (body: unknown, status = 200, extraHeaders?: HeadersInit): Response
   return new Response(JSON.stringify(body), { status, headers });
 };
 
-function upstreamUnavailable(reason: UpstreamFailureReason, env: Env): Response {
-  const headers = env.STAGING_DIAGNOSTICS === "1"
-    ? { "x-zackcloud-upstream-diagnostic": reason }
-    : undefined;
-  return json({ error: "upstream_unavailable" }, 502, headers);
-}
-
-function safeSubscriptionHeaders(upstream: Response): Headers {
+function safeSubscriptionHeaders(metadata: SnapshotMetadata, etag: string): Headers {
   const headers = new Headers({
     "content-type": "application/yaml; charset=utf-8",
     "content-disposition": "inline; filename=zackcloud-lite.yaml",
-    "cache-control": "no-store",
+    "cache-control": "private, no-cache",
+    etag,
     ...SECURITY_HEADERS,
   });
-  for (const name of ["subscription-userinfo", "profile-update-interval"]) {
-    const value = upstream.headers.get(name);
-    if (value !== null) headers.set(name, value);
+  for (const name of ["subscription-userinfo", "profile-update-interval"] as const) {
+    const value = metadata[name];
+    if (value !== undefined) headers.set(name, value);
   }
   return headers;
 }
 
-export function createHandler(fetcher: Fetcher = fetch) {
+export function createHandler() {
   return async (request: Request, env: Env): Promise<Response> => {
     const url = new URL(request.url);
     if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
-    if (url.pathname === "/health") return json({ status: "ok", service: "zackcloud-lite" });
+    if (url.pathname === "/health") return json({ status: "ok", service: "zackcloud-lite", version: "0.3.0" });
     if (url.pathname === "/") return new Response(HTML, { headers: {
       "content-type": "text/html; charset=utf-8",
       "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
@@ -61,14 +54,16 @@ export function createHandler(fetcher: Fetcher = fetch) {
     try { token = decodeURIComponent(match[1]); } catch { return json({ error: "not_found" }, 404); }
     if (!isTokenAllowed(token, env)) return json({ error: "not_found" }, 404);
 
+    if (!env.SUBSCRIPTION_STORE) return json({ error: "subscription_temporarily_unavailable" }, 503);
     try {
-      const upstream = await fetchUpstream(env.UPSTREAM_SUBSCRIPTION_URL, fetcher);
-      const output = convertSubscription(upstream.body, upstream.response.headers.get("content-type"));
-      return new Response(output, { headers: safeSubscriptionHeaders(upstream.response) });
-    } catch (error) {
-      if (error instanceof UpstreamError) return upstreamUnavailable(error.reason, env);
-      if (error instanceof UnsupportedSubscriptionError) return json({ error: "unsupported_subscription_format" }, 502);
-      return json({ error: "subscription_processing_failed" }, 502);
+      const snapshot = await parseSnapshot(await env.SUBSCRIPTION_STORE.get(SNAPSHOT_KEY));
+      if (!snapshot) return json({ error: "subscription_temporarily_unavailable" }, 503);
+      const etag = `"${snapshot.sha256}"`;
+      const headers = safeSubscriptionHeaders(snapshot.metadata, etag);
+      if (request.headers.get("if-none-match") === etag) return new Response(null, { status: 304, headers });
+      return new Response(snapshot.yaml, { headers });
+    } catch {
+      return json({ error: "subscription_temporarily_unavailable" }, 503);
     }
   };
 }

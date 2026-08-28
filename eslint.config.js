@@ -8,7 +8,7 @@ export default tseslint.config(
     ignores: ["dist/**", "coverage/**", "node_modules/**", ".wrangler/**"],
   },
   {
-    files: ["scripts/**/*.mjs"],
+    files: ["scripts/**/*.{mjs,ts}"],
     languageOptions: {
       globals: {
         AbortController: "readonly",

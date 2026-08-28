@@ -1,8 +1,7 @@
 export interface Env {
-  UPSTREAM_SUBSCRIPTION_URL: string;
-  ALLOWED_TOKENS: string;
+  ALLOWED_TOKENS?: string;
   FRIENDS_CONFIG_JSON?: string;
-  STAGING_DIAGNOSTICS?: string;
+  SUBSCRIPTION_STORE?: KVNamespace;
 }
 
 export type Fetcher = typeof fetch;

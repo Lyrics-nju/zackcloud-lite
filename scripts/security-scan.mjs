@@ -29,7 +29,8 @@ async function collectFiles(directory, relative = "") {
   return files;
 }
 
-const devVars = parseDevVars(await readFile(new URL("../.dev.vars", import.meta.url), "utf8"));
+const devVarsText = await readFile(new URL("../.dev.vars", import.meta.url), "utf8").catch(() => "");
+const devVars = parseDevVars(devVarsText);
 let friendTokens = [];
 try {
   const friends = JSON.parse(devVars.get("FRIENDS_CONFIG_JSON") ?? "[]");
