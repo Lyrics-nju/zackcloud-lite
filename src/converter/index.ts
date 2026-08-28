@@ -10,4 +10,6 @@ export function convertSubscription(input: string, contentType: string | null): 
   return converter.convert(input);
 }
 
+export { detectSubscriptionFormat } from "./detector";
+
 export { UnsupportedSubscriptionError } from "./types";

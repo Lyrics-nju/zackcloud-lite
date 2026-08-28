@@ -1,6 +1,6 @@
 {
   "name": "zackcloud-lite",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -8,6 +8,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
+    "integration:safe": "node --experimental-strip-types scripts/integration-safe.mjs",
+    "security:scan": "node scripts/security-scan.mjs",
     "deploy:dry-run": "wrangler deploy --dry-run --outdir dist"
   },
   "dependencies": {

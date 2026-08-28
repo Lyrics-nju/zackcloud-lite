@@ -1,2 +1,3 @@
 UPSTREAM_SUBSCRIPTION_URL=https://example.invalid/sub
 ALLOWED_TOKENS=test-a,test-b
+FRIENDS_CONFIG_JSON=[{"token":"example-token-a","name":"friend-a","enabled":true,"expiresAt":null}]
