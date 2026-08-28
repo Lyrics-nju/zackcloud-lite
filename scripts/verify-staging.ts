@@ -13,20 +13,32 @@ function parseDevVars(text: string): Map<string, string> {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
     const separator = line.indexOf("=");
-    if (separator > 0) values.set(line.slice(0, separator).trim(), line.slice(separator + 1).trim());
+    if (separator > 0) {
+      const key = line.slice(0, separator).trim();
+      const rawValue = line.slice(separator + 1).trim();
+      let value = rawValue;
+      if (rawValue.startsWith("'") && rawValue.endsWith("'")) value = rawValue.slice(1, -1);
+      else if (rawValue.startsWith('"') && rawValue.endsWith('"')) {
+        try { value = JSON.parse(rawValue) as string; } catch { value = rawValue.slice(1, -1); }
+      }
+      values.set(key, value);
+    }
   }
   return values;
 }
 
 function selectToken(values: Map<string, string>): string {
+  const tokens: string[] = [];
   try {
     const friends = JSON.parse(values.get("FRIENDS_CONFIG_JSON") ?? "[]") as Array<{ token?: unknown; enabled?: unknown }>;
-    const token = friends.find((friend) => friend.enabled === true && typeof friend.token === "string")?.token;
-    if (typeof token === "string") return token;
+    for (const friend of friends) {
+      if (friend.enabled === true && typeof friend.token === "string") tokens.push(friend.token);
+    }
   } catch {
     // Fall through to the legacy local token.
   }
-  return (values.get("ALLOWED_TOKENS") ?? "").split(",").map((token) => token.trim()).find(Boolean) ?? "";
+  tokens.push(...(values.get("ALLOWED_TOKENS") ?? "").split(",").map((token) => token.trim()).filter(Boolean));
+  return tokens[0] ?? "";
 }
 
 function curlStatus(url: string, output: string, headerFile?: string, headers: string[] = []): number {
@@ -75,6 +87,12 @@ try {
   const health = curlStatus(new URL("/health", baseUrl).href, nullOutput);
   const invalid = curlStatus(new URL("/sub/definitely-invalid-v03", baseUrl).href, nullOutput);
   const valid = curlStatus(new URL(`/sub/${encodeURIComponent(token)}`, baseUrl).href, temporarySubscription, headersFile);
+  if (health !== 200 || invalid !== 404 || valid !== 200) {
+    console.log(`HEALTH=${health}`);
+    console.log(`INVALID_TOKEN=${invalid}`);
+    console.log(`CLOUDFLARE_SUB_HTTP=${valid}`);
+    throw new Error("staging HTTP verification failed");
+  }
   await chmod(temporarySubscription, 0o600);
   const yaml = await readFile(temporarySubscription, "utf8");
   const headers = parseHeaders(await readFile(headersFile, "utf8"));
@@ -93,6 +111,9 @@ try {
     typeCounts[type] = (typeCounts[type] ?? 0) + 1;
   }
   if (health !== 200 || invalid !== 404 || valid !== 200 || etagStatus !== 304 || !hashMatch || proxies.length === 0) {
+    console.log(`HASH_MATCH=${hashMatch ? "PASS" : "FAIL"}`);
+    console.log(`ETAG_STATUS=${etagStatus}`);
+    console.log(`CLOUDFLARE_PROXY_COUNT=${proxies.length}`);
     throw new Error("staging verification failed");
   }
   await rename(temporarySubscription, finalSubscription);

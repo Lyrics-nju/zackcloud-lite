@@ -44,7 +44,8 @@ function printSummary(result: Awaited<ReturnType<typeof buildFromUpstream>>): vo
 }
 
 async function writeRemoteSnapshot(key: string, serialized: string, source: Source): Promise<void> {
-  const temporaryFile = join(tmpdir(), `zackcloud-lite-snapshot-${randomUUID()}.json`);
+  const temporaryDirectory = process.env.RUNNER_TEMP || tmpdir();
+  const temporaryFile = join(temporaryDirectory, `zackcloud-lite-snapshot-${randomUUID()}.json`);
   try {
     await writeFile(temporaryFile, serialized, { encoding: "utf8", mode: 0o600 });
     await chmod(temporaryFile, 0o600);
