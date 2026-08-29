@@ -117,7 +117,12 @@ async function form(request: Request): Promise<FormData> {
 }
 
 async function csrfValid(request: Request, data: FormData, env: PortalEnv, session?: SessionRecord): Promise<boolean> {
-  if (request.headers.get("origin") !== originFor(env)) return false;
+  const origin = request.headers.get("origin");
+  const expectedOrigin = originFor(env);
+  const sameOriginNullNavigation = origin === "null" &&
+    request.headers.get("sec-fetch-site") === "same-origin" &&
+    request.headers.get("sec-fetch-mode") === "navigate";
+  if (origin !== expectedOrigin && !sameOriginNullNavigation) return false;
   const submitted = data.get("csrf");
   const cookie = cookies(request).get(CSRF_COOKIE);
   if (typeof submitted !== "string" || !cookie || submitted.length < 16 || submitted !== cookie) return false;

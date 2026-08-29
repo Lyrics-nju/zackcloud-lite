@@ -38,7 +38,8 @@ try {
 for (const file of files) {
   const content = await readFile(file.url, "utf8").catch(() => "");
   if (sensitiveValues.some((value) => content.includes(value))) leaks.push(file.relative);
-  const uuidScanContent = file.relative.endsWith("wrangler.jsonc")
+  const wranglerConfigFile = /(^|\/)wrangler\.jsonc(?:\.bak)?$/.test(file.relative);
+  const uuidScanContent = wranglerConfigFile
     ? content.replace(/("database_id"\s*:\s*")[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[1-5][A-Fa-f0-9]{3}-[89abAB][A-Fa-f0-9]{3}-[A-Fa-f0-9]{12}("\s*)/g, "$1[PUBLIC_D1_DATABASE_ID]$2")
     : content;
   if (!file.relative.startsWith("test/") && /[A-Fa-f0-9]{8}-[A-Fa-f0-9]{4}-[1-5][A-Fa-f0-9]{3}-[89abAB][A-Fa-f0-9]{3}-[A-Fa-f0-9]{12}/.test(uuidScanContent)) leaks.push(file.relative);

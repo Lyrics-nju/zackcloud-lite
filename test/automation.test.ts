@@ -212,7 +212,7 @@ describe("GitHub updater workflow audit", () => {
 
   it("only exempts public D1 database IDs in Wrangler config from UUID scanning", () => {
     const scanner = readFileSync(new URL("../scripts/security-scan.mjs", import.meta.url), "utf8");
-    expect(scanner).toContain('file.relative.endsWith("wrangler.jsonc")');
+    expect(scanner).toContain("wrangler\\.jsonc(?:\\.bak)?$");
     expect(scanner).toContain('("database_id"\\s*:\\s*")');
     expect(scanner).toContain("[PUBLIC_D1_DATABASE_ID]");
   });

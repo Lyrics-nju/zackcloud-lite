@@ -128,6 +128,18 @@ function post(path: string, fields: Record<string, string>, cookie = `${CSRF_COO
 }
 function CSRF_COOKIE() { return "zc_csrf"; }
 
+function csrfRegistration(
+  headers: Record<string, string>,
+  submitted = CSRF,
+  cookie = `${CSRF_COOKIE()}=${CSRF}`,
+): Request {
+  return request("/register", {
+    method: "POST",
+    headers: { cookie, "content-type": "application/x-www-form-urlencoded", ...headers },
+    body: new URLSearchParams({ csrf: submitted }),
+  });
+}
+
 function authCookies(response: Response): { cookie: string; csrf: string } {
   const value = response.headers.get("set-cookie") ?? "";
   const session = /zc_session=([^;,]+)/.exec(value)?.[1];
@@ -208,12 +220,74 @@ describe("sessions, CSRF and user dashboard", () => {
     expect(repository.sessions.size).toBe(0);
   });
 
-  it("rejects missing CSRF and a foreign Origin", async () => {
-    const missing = await handler(request("/register", { method: "POST", headers: { origin: ORIGIN }, body: new URLSearchParams() }), env);
-    expect(missing.status).toBe(403);
-    const foreign = post("/register", { username: "alice" });
-    foreign.headers.set("origin", "https://foreign.example.invalid");
-    expect((await handler(foreign, env)).status).toBe(403);
+  it("accepts the configured Portal Origin with a matching CSRF token", async () => {
+    expect((await handler(csrfRegistration({ origin: ORIGIN }), env)).status).toBe(400);
+  });
+
+  it("rejects a foreign Origin", async () => {
+    expect((await handler(csrfRegistration({ origin: "https://foreign.example.invalid" }), env)).status).toBe(403);
+  });
+
+  it("accepts a null Origin only for a same-origin navigation with matching CSRF", async () => {
+    const response = await handler(csrfRegistration({
+      origin: "null",
+      "sec-fetch-site": "same-origin",
+      "sec-fetch-mode": "navigate",
+    }), env);
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects a null Origin from a cross-site navigation", async () => {
+    const response = await handler(csrfRegistration({
+      origin: "null",
+      "sec-fetch-site": "cross-site",
+      "sec-fetch-mode": "navigate",
+    }), env);
+    expect(response.status).toBe(403);
+  });
+
+  it("rejects a null Origin for a non-navigation request", async () => {
+    const response = await handler(csrfRegistration({
+      origin: "null",
+      "sec-fetch-site": "same-origin",
+      "sec-fetch-mode": "cors",
+    }), env);
+    expect(response.status).toBe(403);
+  });
+
+  it("rejects a null Origin when Sec-Fetch metadata is missing", async () => {
+    expect((await handler(csrfRegistration({ origin: "null" }), env)).status).toBe(403);
+  });
+
+  it("rejects a missing Origin even with same-origin navigation metadata", async () => {
+    const response = await handler(csrfRegistration({
+      "sec-fetch-site": "same-origin",
+      "sec-fetch-mode": "navigate",
+    }), env);
+    expect(response.status).toBe(403);
+  });
+
+  it("rejects mismatched CSRF form and cookie tokens", async () => {
+    const response = await handler(csrfRegistration({ origin: ORIGIN }, "different-csrf-value-safe"), env);
+    expect(response.status).toBe(403);
+  });
+
+  it("keeps session CSRF hash validation after request-level checks pass", async () => {
+    const user = repository.seed("alice");
+    const auth = await userLogin(user);
+    const matchingButUnboundCsrf = "matching-but-unbound-csrf";
+    const body = new URLSearchParams({ csrf: matchingButUnboundCsrf });
+    const response = await handler(request("/logout", {
+      method: "POST",
+      headers: {
+        origin: ORIGIN,
+        cookie: `${auth.cookie.split("; ")[0]}; zc_csrf=${matchingButUnboundCsrf}`,
+        "content-type": "application/x-www-form-urlencoded",
+      },
+      body,
+    }), env);
+    expect(response.status).toBe(403);
+    expect(repository.sessions.size).toBe(1);
   });
 
   it.each([
