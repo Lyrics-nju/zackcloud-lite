@@ -3,6 +3,8 @@ export type SessionRole = "USER" | "ADMIN";
 
 export interface PortalEnv {
   AUTH_DB: D1Database;
+  USER_LOGIN_RATE_LIMITER: RateLimit;
+  ADMIN_LOGIN_RATE_LIMITER: RateLimit;
   TOKEN_ENCRYPTION_KEY?: string;
   ADMIN_USERNAME?: string;
   ADMIN_PASSWORD_HASH?: string;

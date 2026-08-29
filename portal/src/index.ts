@@ -208,7 +208,7 @@ export function createPortalHandler(options: PortalHandlerOptions = {}) {
     try {
       if (request.method === "GET" && url.pathname === "/assets/portal.css") return response(PORTAL_CSS, 200, "text/css; charset=utf-8");
       if (request.method === "GET" && url.pathname === "/assets/portal.js") return response(PORTAL_JS, 200, "text/javascript; charset=utf-8");
-      if (request.method === "GET" && url.pathname === "/health") return json({ status: "ok", service: "zackcloud-portal", version: "0.6.0" });
+      if (request.method === "GET" && url.pathname === "/health") return json({ status: "ok", service: "zackcloud-portal", version: "0.6.1" });
       if (request.method === "GET" && url.pathname === "/") return htmlWithCsrf(homePage(), csrf);
       if (request.method === "GET" && url.pathname === "/register") {
         return htmlWithCsrf(registerPage(csrf, undefined, Boolean(env.REGISTRATION_INVITE_CODE_HASH), env.TURNSTILE_SITE_KEY), csrf, Boolean(env.TURNSTILE_SITE_KEY));
@@ -253,6 +253,10 @@ export function createPortalHandler(options: PortalHandlerOptions = {}) {
         if (!await csrfValid(request, data, env)) return response(loginPage(csrf, "错误：请求验证失败"), 403);
         const username = safeUsername(data.get("username"));
         const password = data.get("password");
+        const userRateLimit = await env.USER_LOGIN_RATE_LIMITER.limit({
+          key: `user-login:${username ?? "invalid"}`,
+        });
+        if (!userRateLimit.success) return response(loginPage(csrf, "错误：登录尝试过多，请稍后再试"), 429);
         const user = username ? await repository.findUserByUsername(username) : null;
         if (!user || typeof password !== "string" ||
             !await verifyPassword(password, user.passwordHash, user.passwordSalt, user.passwordIterations)) {
@@ -291,6 +295,8 @@ export function createPortalHandler(options: PortalHandlerOptions = {}) {
         if (!await csrfValid(request, data, env)) return response(adminLoginPage(csrf, "错误：请求验证失败"), 403);
         const username = data.get("username");
         const password = data.get("password");
+        const adminRateLimit = await env.ADMIN_LOGIN_RATE_LIMITER.limit({ key: "admin-login" });
+        if (!adminRateLimit.success) return response(adminLoginPage(csrf, "错误：登录尝试过多，请稍后再试"), 429);
         if (!env.ADMIN_USERNAME || !env.ADMIN_PASSWORD_HASH || username !== env.ADMIN_USERNAME ||
             typeof password !== "string" || !await verifyPortablePassword(password, env.ADMIN_PASSWORD_HASH)) {
           return response(adminLoginPage(csrf, "错误：管理员凭据无效"), 401);

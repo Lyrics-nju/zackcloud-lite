@@ -111,11 +111,26 @@ beforeAll(async () => {
 let repository: MemoryPortalRepository;
 let env: PortalEnv;
 let handler: ReturnType<typeof createPortalHandler>;
+let userRateLimiter: TestRateLimiter;
+let adminRateLimiter: TestRateLimiter;
+
+class TestRateLimiter {
+  calls = 0;
+  constructor(private readonly allowed = Number.POSITIVE_INFINITY) {}
+  async limit(): Promise<{ success: boolean }> {
+    this.calls += 1;
+    return { success: this.calls <= this.allowed };
+  }
+}
 
 beforeEach(() => {
   repository = new MemoryPortalRepository();
+  userRateLimiter = new TestRateLimiter();
+  adminRateLimiter = new TestRateLimiter();
   env = {
     AUTH_DB: {} as D1Database,
+    USER_LOGIN_RATE_LIMITER: userRateLimiter as unknown as RateLimit,
+    ADMIN_LOGIN_RATE_LIMITER: adminRateLimiter as unknown as RateLimit,
     TOKEN_ENCRYPTION_KEY: ENCRYPTION_KEY,
     ADMIN_USERNAME: "admin-example",
     ADMIN_PASSWORD_HASH: adminHash,
@@ -169,6 +184,14 @@ function authenticatedPost(path: string, auth: { cookie: string; csrf: string },
 }
 
 describe("registration and password security", () => {
+  it("requires and verifies the configured registration invite", async () => {
+    env.REGISTRATION_INVITE_CODE_HASH = await sha256("example-high-entropy-invite");
+    const fields = { username: "alice", displayName: "Alice", password: PASSWORD, passwordConfirm: PASSWORD };
+    expect((await handler(post("/register", fields), env)).status).toBe(403);
+    expect((await handler(post("/register", { ...fields, inviteCode: "wrong-invite" }), env)).status).toBe(403);
+    expect((await handler(post("/register", { ...fields, inviteCode: "example-high-entropy-invite" }), env)).status).toBe(201);
+  });
+
   it("registers a pending user", async () => {
     const response = await handler(post("/register", {
       username: "alice", displayName: "Alice", password: PASSWORD, passwordConfirm: PASSWORD,
@@ -323,6 +346,45 @@ describe("sessions, CSRF and user dashboard", () => {
 });
 
 describe("administrator workflow", () => {
+  it("rate limits user authentication before an eleventh PBKDF2 verification", async () => {
+    const user = repository.seed("alice");
+    userRateLimiter = new TestRateLimiter(10);
+    env.USER_LOGIN_RATE_LIMITER = userRateLimiter as unknown as RateLimit;
+    const deriveBits = vi.spyOn(crypto.subtle, "deriveBits");
+    try {
+      for (let attempt = 0; attempt < 10; attempt += 1) {
+        expect((await handler(post("/login", { username: user.username, password: "wrong-password-example" }), env)).status).toBe(401);
+      }
+      const callsBeforeLimit = deriveBits.mock.calls.length;
+      expect((await handler(post("/login", { username: user.username, password: "wrong-password-example" }), env)).status).toBe(429);
+      expect(deriveBits).toHaveBeenCalledTimes(callsBeforeLimit);
+      expect(callsBeforeLimit).toBe(10);
+    } finally {
+      deriveBits.mockRestore();
+    }
+  });
+
+  it("rate limits administrator authentication before a sixth PBKDF2 verification", async () => {
+    adminRateLimiter = new TestRateLimiter(5);
+    env.ADMIN_LOGIN_RATE_LIMITER = adminRateLimiter as unknown as RateLimit;
+    const deriveBits = vi.spyOn(crypto.subtle, "deriveBits");
+    try {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        expect((await handler(post("/admin/login", {
+          username: "admin-example", password: "wrong-password-example",
+        }), env)).status).toBe(401);
+      }
+      const callsBeforeLimit = deriveBits.mock.calls.length;
+      expect((await handler(post("/admin/login", {
+        username: "admin-example", password: "wrong-password-example",
+      }), env)).status).toBe(429);
+      expect(deriveBits).toHaveBeenCalledTimes(callsBeforeLimit);
+      expect(callsBeforeLimit).toBe(5);
+    } finally {
+      deriveBits.mockRestore();
+    }
+  });
+
   it("skips password derivation for unknown users and mismatched admin usernames", async () => {
     const deriveBits = vi.spyOn(crypto.subtle, "deriveBits");
     try {
