@@ -1,4 +1,5 @@
-import { pbkdf2Sync } from "node:crypto";
+import { pbkdf2 } from "@noble/hashes/pbkdf2.js";
+import { sha256 as sha256Hash } from "@noble/hashes/sha2.js";
 
 const encoder = new TextEncoder();
 const PASSWORD_MIN_LENGTH = 12;
@@ -35,8 +36,11 @@ export function constantTimeEqual(left: Uint8Array, right: Uint8Array): boolean 
   return difference === 0;
 }
 
-async function derivePassword(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
-  return new Uint8Array(pbkdf2Sync(password, salt, iterations, 32, "sha256"));
+function derivePassword(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
+  return Promise.resolve(pbkdf2(sha256Hash, encoder.encode(password), salt, {
+    c: iterations,
+    dkLen: 32,
+  }));
 }
 
 export function validatePassword(password: string): void {
@@ -62,7 +66,10 @@ export async function verifyPassword(
 ): Promise<boolean> {
   if (password.length > PASSWORD_MAX_LENGTH || iterations < 100_000 || iterations > 2_000_000) return false;
   try {
-    return constantTimeEqual(await derivePassword(password, base64UrlToBytes(salt), iterations), base64UrlToBytes(hash));
+    return constantTimeEqual(
+      await derivePassword(password, base64UrlToBytes(salt), iterations),
+      base64UrlToBytes(hash),
+    );
   } catch {
     return false;
   }

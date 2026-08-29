@@ -422,7 +422,9 @@ describe("token encryption and security headers", () => {
 
   it("does not use the WebCrypto PBKDF2 deriveBits path", () => {
     const source = readFileSync(new URL("../portal/src/security.ts", import.meta.url), "utf8");
-    expect(source).toContain("pbkdf2Sync");
+    expect(source).toContain("@noble/hashes/pbkdf2.js");
+    expect(source).toContain("pbkdf2(sha256Hash");
+    expect(source).not.toContain("pbkdf2Sync");
     expect(source).not.toContain("deriveBits");
     expect(source).not.toContain('importKey("raw", encoder.encode(password), "PBKDF2"');
   });
