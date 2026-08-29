@@ -13,6 +13,7 @@ export interface PortalEnv {
   TURNSTILE_SECRET_KEY?: string;
   PORTAL_ORIGIN?: string;
   SESSION_TTL_SECONDS?: string;
+  ZACKCLOUD_PUBLIC_BASE_URL?: string;
 }
 
 export interface UserRecord {

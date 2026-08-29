@@ -183,6 +183,22 @@ function authenticatedPost(path: string, auth: { cookie: string; csrf: string },
   return request(path, { method: "POST", headers: { origin: ORIGIN, cookie: auth.cookie, "content-type": "application/x-www-form-urlencoded" }, body });
 }
 
+async function approvedSubscription(baseUrl?: string): Promise<{ raw: string; url: URL; dashboard: string }> {
+  env.ZACKCLOUD_PUBLIC_BASE_URL = baseUrl;
+  const user = repository.seed("alice", "APPROVED");
+  const raw = randomOpaqueToken();
+  const encrypted = await encryptToken(raw, ENCRYPTION_KEY);
+  repository.credentials.set(user.id, {
+    userId: user.id, tokenHash: await sha256(raw), tokenCiphertext: encrypted.ciphertext,
+    tokenIv: encrypted.iv, createdAt: new Date(NOW).toISOString(), rotatedAt: null,
+  });
+  const auth = await userLogin(user);
+  const dashboard = await handler(request("/dashboard", { headers: { cookie: auth.cookie } }), env);
+  const api = await handler(request("/api/subscription", { headers: { cookie: auth.cookie } }), env);
+  expect(api.status).toBe(200);
+  return { raw, url: new URL((await api.json() as { url: string }).url), dashboard: await dashboard.text() };
+}
+
 describe("registration and password security", () => {
   it("requires and verifies the configured registration invite", async () => {
     env.REGISTRATION_INVITE_CODE_HASH = await sha256("example-high-entropy-invite");
@@ -328,20 +344,18 @@ describe("sessions, CSRF and user dashboard", () => {
     expect((await handler(request("/api/subscription", { headers: { cookie: auth.cookie } }), env)).status).toBe(404);
   });
 
-  it("hides an approved token from static HTML and returns it only through authenticated API", async () => {
-    const user = repository.seed("alice", "APPROVED");
-    const raw = randomOpaqueToken();
-    const encrypted = await encryptToken(raw, ENCRYPTION_KEY);
-    repository.credentials.set(user.id, {
-      userId: user.id, tokenHash: await sha256(raw), tokenCiphertext: encrypted.ciphertext,
-      tokenIv: encrypted.iv, createdAt: new Date(NOW).toISOString(), rotatedAt: null,
-    });
-    const auth = await userLogin(user);
-    const dashboard = await handler(request("/dashboard", { headers: { cookie: auth.cookie } }), env);
-    expect(await dashboard.text()).not.toContain(raw);
-    const api = await handler(request("/api/subscription", { headers: { cookie: auth.cookie } }), env);
-    expect(api.status).toBe(200);
-    expect((await api.json() as { url: string }).url).toContain(raw);
+  it("DEFAULT_BASE_URL_COMPAT hides the token and uses the production subscription domain", async () => {
+    const result = await approvedSubscription();
+    expect(result.dashboard).not.toContain(result.raw);
+    expect(result.url.origin).toBe("https://sub.zackcloud.site");
+    expect(result.url.pathname).toContain(result.raw);
+  });
+
+  it.each([
+    ["STAGING_BASE_URL", "https://sub-staging.zackcloud.site", "https://sub-staging.zackcloud.site"],
+    ["PRODUCTION_BASE_URL", "https://sub.zackcloud.site/", "https://sub.zackcloud.site"],
+  ])("%s uses the configured subscription domain", async (_name, configured, expected) => {
+    expect((await approvedSubscription(configured)).url.origin).toBe(expected);
   });
 });
 

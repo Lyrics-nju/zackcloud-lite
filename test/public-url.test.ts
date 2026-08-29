@@ -55,8 +55,10 @@ describe("public subscription URL", () => {
 });
 
 describe("custom-domain verification safety", () => {
-  it("accepts only the formal custom-domain root", () => {
+  it("accepts only the production and staging custom-domain roots", () => {
     expect(resolveCustomDomainUrl("https://sub.zackcloud.site")?.href).toBe("https://sub.zackcloud.site/");
+    expect(resolveCustomDomainUrl("https://sub-staging.zackcloud.site")?.href)
+      .toBe("https://sub-staging.zackcloud.site/");
     expect(() => resolveCustomDomainUrl("https://example.invalid")).toThrowError("CUSTOM_DOMAIN_URL_INVALID");
   });
 

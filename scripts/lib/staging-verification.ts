@@ -36,7 +36,8 @@ export function resolveCustomDomainUrl(value: string | undefined): URL | undefin
   if (!value?.trim()) return undefined;
   try {
     const url = new URL(value);
-    if (url.protocol !== "https:" || url.hostname !== "sub.zackcloud.site" || url.username || url.password ||
+    const allowedHostnames = new Set(["sub.zackcloud.site", "sub-staging.zackcloud.site"]);
+    if (url.protocol !== "https:" || !allowedHostnames.has(url.hostname) || url.username || url.password ||
         url.port || url.pathname !== "/" || url.search || url.hash) {
       throw new StagingConfigError("CUSTOM_DOMAIN_URL_INVALID");
     }

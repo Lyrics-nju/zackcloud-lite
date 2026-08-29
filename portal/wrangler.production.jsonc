@@ -1,25 +1,25 @@
 {
   "$schema": "../node_modules/wrangler/config-schema.json",
-  "name": "zackcloud-portal-staging",
+  "name": "zackcloud-portal",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-29",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "vars": {
-    "ZACKCLOUD_PUBLIC_BASE_URL": "https://sub-staging.zackcloud.site"
+    "ZACKCLOUD_PUBLIC_BASE_URL": "https://sub.zackcloud.site"
   },
   "d1_databases": [
     {
       "binding": "AUTH_DB",
-      "database_name": "zackcloud-auth",
-      "database_id": "d2cec84f-1945-4e00-a235-f6a647799c70",
+      "database_name": "zackcloud-auth-prod",
+      "database_id": "57099dea-7d75-4d00-9a8b-af5c088ec122",
       "migrations_dir": "migrations"
     }
   ],
   "ratelimits": [
     {
       "name": "USER_LOGIN_RATE_LIMITER",
-      "namespace_id": "6061001",
+      "namespace_id": "6070001",
       "simple": {
         "limit": 10,
         "period": 60
@@ -27,7 +27,7 @@
     },
     {
       "name": "ADMIN_LOGIN_RATE_LIMITER",
-      "namespace_id": "6061002",
+      "namespace_id": "6070002",
       "simple": {
         "limit": 5,
         "period": 60
@@ -36,7 +36,7 @@
   ],
   "routes": [
     {
-      "pattern": "portal-staging.zackcloud.site",
+      "pattern": "zackcloud.site",
       "custom_domain": true
     }
   ]

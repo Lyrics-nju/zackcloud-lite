@@ -19,6 +19,12 @@
           "binding": "SUBSCRIPTION_STORE",
           "id": "5aae504939bb46289a56c41a92014690"
         }
+      ],
+      "routes": [
+        {
+          "pattern": "sub-staging.zackcloud.site",
+          "custom_domain": true
+        }
       ]
     }
   }

@@ -208,7 +208,7 @@ export function createPortalHandler(options: PortalHandlerOptions = {}) {
     try {
       if (request.method === "GET" && url.pathname === "/assets/portal.css") return response(PORTAL_CSS, 200, "text/css; charset=utf-8");
       if (request.method === "GET" && url.pathname === "/assets/portal.js") return response(PORTAL_JS, 200, "text/javascript; charset=utf-8");
-      if (request.method === "GET" && url.pathname === "/health") return json({ status: "ok", service: "zackcloud-portal", version: "0.6.1" });
+      if (request.method === "GET" && url.pathname === "/health") return json({ status: "ok", service: "zackcloud-portal", version: "0.7.0" });
       if (request.method === "GET" && url.pathname === "/") return htmlWithCsrf(homePage(), csrf);
       if (request.method === "GET" && url.pathname === "/register") {
         return htmlWithCsrf(registerPage(csrf, undefined, Boolean(env.REGISTRATION_INVITE_CODE_HASH), env.TURNSTILE_SITE_KEY), csrf, Boolean(env.TURNSTILE_SITE_KEY));
@@ -280,7 +280,9 @@ export function createPortalHandler(options: PortalHandlerOptions = {}) {
         const stored = await repository.getCredential(user.id);
         if (!stored || !env.TOKEN_ENCRYPTION_KEY) return json({ error: "not_available" }, 404);
         const token = await decryptToken(stored.tokenCiphertext, stored.tokenIv, env.TOKEN_ENCRYPTION_KEY);
-        return json({ url: friendSubscriptionUrl(token, {}) });
+        return json({ url: friendSubscriptionUrl(token, {
+          ZACKCLOUD_PUBLIC_BASE_URL: env.ZACKCLOUD_PUBLIC_BASE_URL,
+        }) });
       }
       if (request.method === "POST" && url.pathname === "/logout") {
         const session = await authenticatedSession(request, repository, now);

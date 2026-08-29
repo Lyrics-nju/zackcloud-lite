@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "zackcloud-lite",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-28",
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "AUTH_DB",
+      "database_name": "zackcloud-auth-prod",
+      "database_id": "57099dea-7d75-4d00-9a8b-af5c088ec122"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "SUBSCRIPTION_STORE",
+      "id": "5aae504939bb46289a56c41a92014690"
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "sub.zackcloud.site",
+      "custom_domain": true
+    }
+  ]
+}

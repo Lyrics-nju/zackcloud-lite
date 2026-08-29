@@ -1,10 +1,10 @@
 # ZackCloud Lite（扎克云 Lite）
 
-ZackCloud Lite V0.6.1 是供少数朋友免费使用的私人订阅整理与静态分发服务。正式朋友订阅入口为 `https://sub.zackcloud.site`；V0.3/V0.4 的 Cloudflare Worker、KV snapshot 和 updater 数据链路保持不变。Worker 只分发预生成配置，不承担代理流量，也不在朋友刷新订阅时访问上游。
+ZackCloud Lite V0.7.0 是供少数朋友免费使用的私人订阅整理与静态分发服务。正式门户为 `https://zackcloud.site`，正式朋友订阅入口为 `https://sub.zackcloud.site`；V0.3/V0.4 的 Cloudflare Worker、KV snapshot 和 updater 数据链路保持不变。Worker 只分发预生成配置，不承担代理流量，也不在朋友刷新订阅时访问上游。
 
-V0.6 新增一个彼此独立的用户门户 Worker；V0.6.1 为注册与登录增加上线前安全加固。门户负责注册、登录、审批和订阅凭据生命周期；订阅 Worker 继续只负责认证和分发。门户的计划入口是 `https://zackcloud.site`，订阅入口仍为 `https://sub.zackcloud.site`。
+V0.6 新增彼此独立的用户门户 Worker并完成安全加固；V0.7 将隔离的 production Portal、D1 和 Subscription Worker 提升到正式域名。门户负责注册、登录、审批和订阅凭据生命周期；订阅 Worker 继续只负责认证和分发。
 
-## V0.6.1 双 Worker 架构
+## V0.7 双 Worker 架构
 
 ```text
 浏览器 → zackcloud.site → Portal Worker → D1 AUTH_DB
@@ -45,11 +45,11 @@ npm run portal:dev
 - `/login` 使用按规范化用户名区分的 Cloudflare Rate Limiting binding（10 次/60 秒），`/admin/login` 使用独立固定类别（5 次/60 秒）；超限请求在密码派生前返回 429。
 - Cloudflare Turnstile 为可选项；配置 site/secret key 后注册页和服务端验证同时启用，未配置时不加载第三方脚本。
 
-管理员账号不是 D1 普通用户。上线前通过 secrets 配置管理员用户名和 hash；审批、拒绝、禁用、启用、过期时间、token 轮换和删除都会写入 `audit_logs`。仓库配置不会自动绑定根域，也不包含 production 部署脚本。
+管理员账号不是 D1 普通用户。上线前通过 secrets 配置管理员用户名和 hash；审批、拒绝、禁用、启用、过期时间、token 轮换和删除都会写入 `audit_logs`。`portal/wrangler.production.jsonc` 和 `wrangler.production.jsonc` 只保存 production 的非敏感绑定与域名配置，所有 secret 仍必须通过 Wrangler stdin 设置。
 
-### V0.6.1 staging 部署准备
+### Staging 与 production 隔离
 
-远程 D1 使用数据库名 `zackcloud-auth`，Portal 与 Subscription Worker 都以 `AUTH_DB` 绑定同一个数据库。Portal staging Worker 名固定为 `zackcloud-portal-staging`；不要把 `zackcloud.site` 根域绑定到 staging Worker。完整生命周期验证前，只允许使用 workers.dev，或由管理员在 Cloudflare Dashboard 手工绑定 `portal-staging.zackcloud.site`。
+Staging 使用 `zackcloud-auth`、`zackcloud-portal-staging`、`zackcloud-lite-staging`、`portal-staging.zackcloud.site` 和 `sub-staging.zackcloud.site`。Production 使用独立的 `zackcloud-auth-prod`、`zackcloud-portal`、`zackcloud-lite`、`zackcloud.site` 和 `sub.zackcloud.site`。两套环境共享只读分发用 KV snapshot，但 D1、登录限流 namespace 与 Worker secrets 必须隔离。
 
 首次准备或核对远程 migration 时必须明确使用 `--remote`：
 
