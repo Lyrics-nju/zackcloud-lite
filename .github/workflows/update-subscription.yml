@@ -34,3 +34,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_KV_NAMESPACE_ID }}
+      - name: Remove temporary snapshot files
+        if: always()
+        shell: bash
+        run: find "${RUNNER_TEMP:?}" -maxdepth 1 -type f -name 'zackcloud-lite-snapshot-*.json' -delete

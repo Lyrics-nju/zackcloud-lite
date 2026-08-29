@@ -58,7 +58,22 @@ const tracked = trackedOutput.split(/\r?\n/).filter(Boolean);
 const forbiddenTracked = tracked.filter((path) =>
   path === ".dev.vars" || path === ".env" || path.startsWith("node_modules/") ||
   path.startsWith("dist/") || path.startsWith(".wrangler/") || path.startsWith("runtime/") ||
-  path.includes("real-subscription"));
+  path.includes("real-subscription") || path.endsWith("staging-friends.json") ||
+  path.endsWith("staging-subscription.yaml") || path.endsWith("staging-headers.txt"));
+
+const workflowFile = files.find(({ relative }) => relative === ".github/workflows/update-subscription.yml");
+if (workflowFile) {
+  const workflow = await readFile(workflowFile.url, "utf8");
+  const forbiddenWorkflowPatterns = [
+    /set\s+-x/,
+    /echo[^\n]*secrets\./i,
+    /GITHUB_STEP_SUMMARY/,
+    /actions\/upload-artifact/i,
+    /cat[^\n]*(ya?ml|\.dev\.vars)/i,
+  ];
+  if (forbiddenWorkflowPatterns.some((pattern) => pattern.test(workflow))) leaks.push(workflowFile.relative);
+  if (!/if:\s*always\(\)/.test(workflow) || !/RUNNER_TEMP/.test(workflow)) leaks.push(workflowFile.relative);
+}
 
 if (leaks.length > 0 || forbiddenTracked.length > 0) {
   console.log("SECURITY_SCAN=FAIL");
