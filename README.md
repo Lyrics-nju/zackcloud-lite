@@ -1,6 +1,6 @@
 # ZackCloud Lite（扎克云 Lite）
 
-ZackCloud Lite V0.3 是供少数朋友免费使用的私人订阅整理与静态分发服务。Cloudflare Worker 只分发预生成配置，不承担代理流量，也不在朋友刷新订阅时访问上游。
+ZackCloud Lite V0.4 是供少数朋友免费使用的私人订阅整理与静态分发服务。V0.4 新增安全的本地 Friend Management CLI；V0.3 的 Cloudflare Worker、KV snapshot 和 updater 数据链路保持不变。Worker 只分发预生成配置，不承担代理流量，也不在朋友刷新订阅时访问上游。
 
 ## 三条数据流
 
@@ -24,7 +24,7 @@ Clash / Mihomo → 直接连接原上游 proxy node → Internet
 
 开发者电脑不需要常开。GitHub updater 可用时每 6 小时自动更新；如果 GitHub runner 被上游拒绝，可以偶尔在本地运行 Publisher，朋友继续读取 KV 中的 last-known-good snapshot。
 
-## V0.3 功能
+## V0.3 核心链路
 
 - `GET /health`：返回服务名和 `0.3.0` 版本，不暴露 KV 或上游状态。
 - `GET /`：私人服务中文首页。
@@ -112,6 +112,52 @@ npm run setup:kv -- --create
 ```
 
 未知、禁用、过期和格式非法的 token 都统一返回 `404`。旧的 `ALLOWED_TOKENS` 暂时继续支持。
+
+## Friend Management
+
+正式 friend store 默认位于 `~/.local/share/zackcloud-lite/friends.json`。目录权限为 `0700`，文件权限为 `0600`，更新采用同目录临时文件、同步落盘后原子 rename。可通过 `ZACKCLOUD_FRIENDS_FILE` 指向另一个私有文件；该文件永远不能提交到 Git。
+
+从 V0.3 已同步的私有 `staging-friends.json` 首次迁移时，可运行 `npm run friends:migrate-staging`。该操作只在新 store 尚不存在时执行，保留现有凭据并补齐本地审计时间字段，不会打印配置正文。
+
+以下示例必须在 WSL 中运行：
+
+```bash
+export ZACKCLOUD_PUBLIC_BASE_URL="https://example.invalid"
+npm run friend:add -- "Alice"
+npm run friend:list
+npm run friend:disable -- "Alice"
+npm run friend:enable -- "Alice"
+npm run friend:rotate -- "Alice"
+npm run friend:expire -- "Alice" "2026-12-31T23:59:59+08:00"
+npm run friend:expire -- "Alice" never
+npm run friend:remove -- "Alice" --yes
+```
+
+`friend:add` 和 `friend:rotate` 只在成功时输出一次新的完整订阅 URL；其他命令最多显示 token 最后 4 个字符。未设置 `ZACKCLOUD_PUBLIC_BASE_URL` 时只输出 `SUBSCRIPTION_URL=NOT_CONFIGURED`。
+
+把验证后的 friend store 安全写入 staging Worker Secret：
+
+```bash
+npm run friends:deploy
+```
+
+JSON 通过 stdin 交给 Wrangler，不进入 shell 参数，也不打印正文。默认目标严格为 `zackcloud-lite-staging`；如确有需要可使用 `ZACKCLOUD_WORKER_NAME` 覆盖。新增并同步可以合并为：
+
+```bash
+npm run friend:add-and-deploy -- "Bob"
+```
+
+远端失败时本地新增记录会保留，命令会明确报告本地已更新、远端未更新，并且不会输出订阅 URL。
+
+使用明确提供的 staging URL 验证单个朋友：
+
+```bash
+STAGING_URL="https://example.invalid" npm run friend:verify -- "Alice"
+```
+
+校园网环境可额外设置 `ZACKCLOUD_TEST_PROXY`；代理地址不写入 Worker 或源码。
+
+旋转 token 会阻止旧链接继续刷新订阅，但无法即时删除朋友设备已经下载的节点连接信息。真正即时废除底层节点凭据，仍需由 upstream provider 更换相关凭据。
 
 ## GitHub Actions updater
 

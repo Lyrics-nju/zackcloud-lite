@@ -138,6 +138,12 @@ describe("GitHub updater workflow audit", () => {
     expect(workflow.permissions).toEqual({ contents: "read" });
   });
 
+  it("uses the stable Node 24 action runtimes", () => {
+    const uses = workflow.jobs?.update?.steps?.map((step) => String(step.uses ?? "")) ?? [];
+    expect(uses).toContain("actions/checkout@v5");
+    expect(uses).toContain("actions/setup-node@v5");
+  });
+
   it("runs on a six-hour cron rather than a high-frequency schedule", () => {
     expect(workflow.on?.schedule).toEqual([{ cron: "17 */6 * * *" }]);
   });
@@ -172,5 +178,10 @@ describe("GitHub updater workflow audit", () => {
   it("contains a Linux workerd optional package in the lockfile", () => {
     const lockfile = readFileSync(new URL("../package-lock.json", import.meta.url), "utf8");
     expect(lockfile).toContain("node_modules/@cloudflare/workerd-linux-64");
+  });
+
+  it("does not read .dev.vars during security scanning", () => {
+    const scanner = readFileSync(new URL("../scripts/security-scan.mjs", import.meta.url), "utf8");
+    expect(scanner).not.toContain('readFile(new URL("../.dev.vars"');
   });
 });

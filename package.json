@@ -1,6 +1,6 @@
 {
   "name": "zackcloud-lite",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -15,6 +15,17 @@
     "update:ci": "tsx scripts/update-subscription.ts --source=env",
     "setup:kv": "tsx scripts/setup-kv.ts",
     "verify:staging": "tsx scripts/verify-staging.ts",
+    "friend:add": "tsx scripts/friends.ts add",
+    "friend:list": "tsx scripts/friends.ts list",
+    "friend:disable": "tsx scripts/friends.ts disable",
+    "friend:enable": "tsx scripts/friends.ts enable",
+    "friend:rotate": "tsx scripts/friends.ts rotate",
+    "friend:remove": "tsx scripts/friends.ts remove",
+    "friend:expire": "tsx scripts/friends.ts expire",
+    "friends:deploy": "tsx scripts/friends.ts deploy",
+    "friends:migrate-staging": "tsx scripts/friends.ts migrate-staging",
+    "friend:add-and-deploy": "tsx scripts/friends.ts add-and-deploy",
+    "friend:verify": "tsx scripts/friends.ts verify",
     "deploy:dry-run": "wrangler deploy --dry-run --env staging --outdir dist"
   },
   "dependencies": {

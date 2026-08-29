@@ -1,5 +1,9 @@
 node_modules/
 .dev.vars
+friends.json
+staging-friends.json
+staging-subscription.yaml
+staging-headers.txt
 .env
 .env.*
 .wrangler/

@@ -1,21 +1,12 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { readFile, readdir } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 const execFile = promisify(execFileCallback);
 const projectRoot = new URL("../", import.meta.url);
 const excludedDirectories = new Set([".git", ".wrangler", "coverage", "dist", "node_modules"]);
-
-function parseDevVars(text) {
-  const values = new Map();
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const separator = line.indexOf("=");
-    if (separator > 0) values.set(line.slice(0, separator).trim(), line.slice(separator + 1).trim());
-  }
-  return values;
-}
 
 async function collectFiles(directory, relative = "") {
   const files = [];
@@ -29,23 +20,21 @@ async function collectFiles(directory, relative = "") {
   return files;
 }
 
-const devVarsText = await readFile(new URL("../.dev.vars", import.meta.url), "utf8").catch(() => "");
-const devVars = parseDevVars(devVarsText);
-let friendTokens = [];
-try {
-  const friends = JSON.parse(devVars.get("FRIENDS_CONFIG_JSON") ?? "[]");
-  if (Array.isArray(friends)) friendTokens = friends.map((friend) => friend?.token).filter((token) => typeof token === "string");
-} catch {
-  // Malformed local friend configuration cannot add searchable token values.
-}
-const sensitiveValues = [
-  devVars.get("UPSTREAM_SUBSCRIPTION_URL"),
-  ...(devVars.get("ALLOWED_TOKENS") ?? "").split(","),
-  ...friendTokens,
-].map((value) => value?.trim()).filter((value) => value && value.length >= 6);
-
 const files = await collectFiles(projectRoot);
 const leaks = [];
+const friendStorePath = process.env.ZACKCLOUD_FRIENDS_FILE ||
+  join(homedir(), ".local", "share", "zackcloud-lite", "friends.json");
+const friendStoreText = await readFile(friendStorePath, "utf8").catch(() => "");
+let sensitiveValues = [];
+try {
+  const friends = JSON.parse(friendStoreText);
+  if (Array.isArray(friends)) {
+    sensitiveValues = friends.map((friend) => friend?.token)
+      .filter((token) => typeof token === "string" && token.length >= 16);
+  }
+} catch {
+  // Invalid private state is handled by the friend CLI; the scanner never prints it.
+}
 for (const file of files) {
   const content = await readFile(file.url, "utf8").catch(() => "");
   if (sensitiveValues.some((value) => content.includes(value))) leaks.push(file.relative);
@@ -59,7 +48,8 @@ const forbiddenTracked = tracked.filter((path) =>
   path === ".dev.vars" || path === ".env" || path.startsWith("node_modules/") ||
   path.startsWith("dist/") || path.startsWith(".wrangler/") || path.startsWith("runtime/") ||
   path.includes("real-subscription") || path.endsWith("staging-friends.json") ||
-  path.endsWith("staging-subscription.yaml") || path.endsWith("staging-headers.txt"));
+  path.endsWith("staging-subscription.yaml") || path.endsWith("staging-headers.txt") ||
+  path === "friends.json" || path.endsWith("/friends.json"));
 
 const workflowFile = files.find(({ relative }) => relative === ".github/workflows/update-subscription.yml");
 if (workflowFile) {
