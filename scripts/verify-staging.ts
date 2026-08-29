@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { chmod, mkdir, readFile, rename, rm } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { parse } from "yaml";
 import { sha256Hex } from "../src/hash";
 import {
+  customDomainVerificationLines,
   readStagingFriendToken,
+  resolveCustomDomainUrl,
   resolveStagingFriendsFile,
   resolveStagingUrl,
   resolveTestProxy,
@@ -33,11 +35,7 @@ function parseHeaders(text: string): Map<string, string> {
   return headers;
 }
 
-async function main(): Promise<void> {
-  const baseUrl = resolveStagingUrl(process.env.STAGING_URL);
-  const proxy = resolveTestProxy(process.env);
-  const token = await readStagingFriendToken(resolveStagingFriendsFile(process.env));
-
+async function verifyWorkersDev(baseUrl: URL, proxy: string | undefined, token: string): Promise<void> {
   const identifier = randomUUID();
   const scratch = tmpdir();
   const nullOutput = join(scratch, `zackcloud-lite-null-${identifier}`);
@@ -115,11 +113,74 @@ async function main(): Promise<void> {
   }
 }
 
+async function verifyCustomDomain(baseUrl: URL, proxy: string | undefined, token: string): Promise<void> {
+  const identifier = randomUUID();
+  const healthFile = join(tmpdir(), `zackcloud-lite-custom-health-${identifier}`);
+  const bodyFile = join(tmpdir(), `zackcloud-lite-custom-body-${identifier}`);
+  const headersFile = join(tmpdir(), `zackcloud-lite-custom-headers-${identifier}`);
+  const revalidateFile = join(tmpdir(), `zackcloud-lite-custom-304-${identifier}`);
+  let health: number | "REQUEST_FAILED" = "REQUEST_FAILED";
+  let subscription: number | "NOT_RUN" | "REQUEST_FAILED" = "NOT_RUN";
+  let etagPass = false;
+  let printed = false;
+  try {
+    await Promise.all([healthFile, bodyFile, headersFile, revalidateFile].map((path) =>
+      writeFile(path, "", { encoding: "utf8", mode: 0o600 })));
+    health = curlStatus(new URL("/health", baseUrl).href, healthFile, proxy);
+    if (health === 200) {
+      subscription = curlStatus(
+        new URL(`/sub/${encodeURIComponent(token)}`, baseUrl).href,
+        bodyFile,
+        proxy,
+        headersFile,
+      );
+    }
+    if (subscription === 200) {
+      const body = await readFile(bodyFile, "utf8");
+      const etag = parseHeaders(await readFile(headersFile, "utf8")).get("etag") ?? "";
+      if (etag && body.trim()) {
+        const revalidation = curlStatus(
+          new URL(`/sub/${encodeURIComponent(token)}`, baseUrl).href,
+          revalidateFile,
+          proxy,
+          undefined,
+          [`If-None-Match: ${etag}`],
+        );
+        etagPass = etag === `"${await sha256Hex(body)}"` && revalidation === 304;
+      }
+    }
+    for (const line of customDomainVerificationLines({ health, subscription, etagPass })) console.log(line);
+    printed = true;
+    if (health !== 200 || subscription !== 200 || !etagPass) {
+      throw new Error("CUSTOM_DOMAIN_VERIFICATION_FAILED");
+    }
+  } catch {
+    if (!printed) {
+      for (const line of customDomainVerificationLines({ health, subscription, etagPass })) console.log(line);
+    }
+    throw new Error("CUSTOM_DOMAIN_VERIFICATION_FAILED");
+  } finally {
+    await Promise.all([healthFile, bodyFile, headersFile, revalidateFile].map((path) => rm(path, { force: true })));
+  }
+}
+
+async function main(): Promise<void> {
+  const customDomainUrl = resolveCustomDomainUrl(process.env.CUSTOM_DOMAIN_URL);
+  const stagingUrlValue = process.env.STAGING_URL?.trim();
+  if (!stagingUrlValue && !customDomainUrl) resolveStagingUrl(undefined);
+  const proxy = resolveTestProxy(process.env);
+  const token = await readStagingFriendToken(resolveStagingFriendsFile(process.env));
+  if (stagingUrlValue) await verifyWorkersDev(resolveStagingUrl(stagingUrlValue), proxy, token);
+  if (customDomainUrl) await verifyCustomDomain(customDomainUrl, proxy, token);
+}
+
 try {
   await main();
 } catch (error) {
   if (error instanceof StagingConfigError) console.log(error.code);
-  else if (!(error instanceof Error) || !error.message.startsWith("STAGING_")) console.log("VERIFY_STAGING_FAILED");
-  else if (!error.message.endsWith("VERIFICATION_FAILED")) console.log(error.message);
+  else if (error instanceof Error && error.message.endsWith("_VERIFICATION_FAILED")) {
+    // The verification function already emitted only its allowlisted status fields.
+  } else if (!(error instanceof Error) || !error.message.startsWith("STAGING_")) console.log("VERIFY_STAGING_FAILED");
+  else console.log(error.message);
   process.exitCode = 1;
 }

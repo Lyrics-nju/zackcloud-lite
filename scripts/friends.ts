@@ -14,6 +14,7 @@ import {
   FriendStoreError,
 } from "./lib/friend-store";
 import { curlVerifyFriend, deployFriendSecret, eligibleFriend } from "./lib/friend-remote";
+import { friendSubscriptionUrl } from "./lib/public-subscription-url";
 import {
   resolveStagingFriendsFile,
   resolveStagingUrl,
@@ -24,24 +25,10 @@ import {
 const [command, ...args] = process.argv.slice(2);
 const filePath = resolveFriendStorePath(process.env);
 
-function subscriptionUrl(token: string): string | null {
-  const configured = process.env.ZACKCLOUD_PUBLIC_BASE_URL?.trim();
-  if (!configured) return null;
-  try {
-    const base = new URL(configured);
-    if (base.protocol !== "https:" || base.username || base.password || base.search || base.hash) {
-      throw new Error();
-    }
-    return new URL(`/sub/${encodeURIComponent(token)}`, base).href;
-  } catch {
-    throw new Error("PUBLIC_BASE_URL_INVALID");
-  }
-}
-
 function printCreated(name: string, token: string): void {
   console.log("FRIEND_CREATED=PASS");
   console.log(`NAME=${name}`);
-  console.log(`SUBSCRIPTION_URL=${subscriptionUrl(token) ?? "NOT_CONFIGURED"}`);
+  console.log(`SUBSCRIPTION_URL=${friendSubscriptionUrl(token, process.env)}`);
 }
 
 async function deployCurrent(): Promise<number> {
@@ -58,7 +45,7 @@ async function main(): Promise<void> {
   if (command === "add") {
     const current = await readFriendStore(filePath, true);
     const result = addFriend(current, args[0]);
-    subscriptionUrl(result.friend.token);
+    friendSubscriptionUrl(result.friend.token, process.env);
     await writeFriendStoreAtomic(filePath, result.friends);
     printCreated(result.friend.name, result.friend.token);
     return;
@@ -77,10 +64,10 @@ async function main(): Promise<void> {
   }
   if (command === "rotate") {
     const result = rotateFriend(await readFriendStore(filePath), args[0]);
-    subscriptionUrl(result.friend.token);
+    friendSubscriptionUrl(result.friend.token, process.env);
     await writeFriendStoreAtomic(filePath, result.friends);
     console.log("OLD_TOKEN_REVOKED=PASS");
-    console.log(`SUBSCRIPTION_URL=${subscriptionUrl(result.friend.token) ?? "NOT_CONFIGURED"}`);
+    console.log(`SUBSCRIPTION_URL=${friendSubscriptionUrl(result.friend.token, process.env)}`);
     return;
   }
   if (command === "remove") {
@@ -122,7 +109,7 @@ async function main(): Promise<void> {
   if (command === "add-and-deploy") {
     const current = await readFriendStore(filePath, true);
     const result = addFriend(current, args[0]);
-    subscriptionUrl(result.friend.token);
+    friendSubscriptionUrl(result.friend.token, process.env);
     await writeFriendStoreAtomic(filePath, result.friends);
     try {
       await deployCurrent();

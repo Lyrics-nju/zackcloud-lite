@@ -5,6 +5,7 @@ import { join } from "node:path";
 export type StagingConfigErrorCode =
   | "STAGING_URL_NOT_CONFIGURED"
   | "STAGING_URL_INVALID"
+  | "CUSTOM_DOMAIN_URL_INVALID"
   | "TEST_PROXY_INVALID"
   | "STAGING_FRIEND_TOKEN_NOT_AVAILABLE";
 
@@ -29,6 +30,37 @@ export function resolveStagingUrl(value: string | undefined): URL {
     if (error instanceof StagingConfigError) throw error;
     throw new StagingConfigError("STAGING_URL_INVALID");
   }
+}
+
+export function resolveCustomDomainUrl(value: string | undefined): URL | undefined {
+  if (!value?.trim()) return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.hostname !== "sub.zackcloud.site" || url.username || url.password ||
+        url.port || url.pathname !== "/" || url.search || url.hash) {
+      throw new StagingConfigError("CUSTOM_DOMAIN_URL_INVALID");
+    }
+    return url;
+  } catch (error) {
+    if (error instanceof StagingConfigError) throw error;
+    throw new StagingConfigError("CUSTOM_DOMAIN_URL_INVALID");
+  }
+}
+
+export interface CustomDomainVerificationStatus {
+  health: number | "REQUEST_FAILED";
+  subscription: number | "NOT_RUN" | "REQUEST_FAILED";
+  etagPass: boolean;
+}
+
+export function customDomainVerificationLines(status: CustomDomainVerificationStatus): string[] {
+  const pass = status.health === 200 && status.subscription === 200 && status.etagPass;
+  return [
+    `CUSTOM_DOMAIN_HEALTH=${status.health}`,
+    `CUSTOM_DOMAIN_SUBSCRIPTION=${status.subscription}`,
+    `CUSTOM_DOMAIN_ETAG=${status.etagPass ? "PASS" : "FAIL"}`,
+    `CUSTOM_DOMAIN_VERIFY=${pass ? "PASS" : "FAIL"}`,
+  ];
 }
 
 export function resolveTestProxy(environment: Record<string, string | undefined>): string | undefined {
