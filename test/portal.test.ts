@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPortalHandler } from "../portal/src/index";
 import type { NewUser, PortalRepository } from "../portal/src/repository";
 import {
@@ -323,6 +323,17 @@ describe("sessions, CSRF and user dashboard", () => {
 });
 
 describe("administrator workflow", () => {
+  it("skips password derivation for unknown users and mismatched admin usernames", async () => {
+    const deriveBits = vi.spyOn(crypto.subtle, "deriveBits");
+    try {
+      expect((await handler(post("/login", { username: "missing-user", password: PASSWORD }), env)).status).toBe(401);
+      expect((await handler(post("/admin/login", { username: "missing-admin", password: PASSWORD }), env)).status).toBe(401);
+      expect(deriveBits).not.toHaveBeenCalled();
+    } finally {
+      deriveBits.mockRestore();
+    }
+  });
+
   it("rejects invalid admin login and accepts configured credentials", async () => {
     expect((await handler(post("/admin/login", { username: "admin-example", password: "wrong-password-example" }), env)).status).toBe(401);
     expect((await handler(post("/admin/login", { username: "admin-example", password: PASSWORD }), env)).status).toBe(303);
@@ -388,9 +399,9 @@ describe("administrator workflow", () => {
 });
 
 describe("token encryption and security headers", () => {
-  it("derives and verifies 310000-iteration PBKDF2-SHA256 passwords", async () => {
+  it("derives and verifies runtime-native PBKDF2-SHA256 passwords", async () => {
     const password = await hashPassword(PASSWORD);
-    expect(password.iterations).toBe(310_000);
+    expect(password.iterations).toBe(20_000);
     expect(password.iterations).toBe(PASSWORD_ITERATIONS);
     expect(await verifyPassword(PASSWORD, password.hash, password.salt, password.iterations)).toBe(true);
     expect(await verifyPassword("wrong-password-example", password.hash, password.salt, password.iterations)).toBe(false);
@@ -420,13 +431,12 @@ describe("token encryption and security headers", () => {
     expect(await verifyPortablePassword(PASSWORD, portable)).toBe(true);
   });
 
-  it("does not use the WebCrypto PBKDF2 deriveBits path", () => {
+  it("uses the runtime-native WebCrypto PBKDF2 path", () => {
     const source = readFileSync(new URL("../portal/src/security.ts", import.meta.url), "utf8");
-    expect(source).toContain("@noble/hashes/pbkdf2.js");
-    expect(source).toContain("pbkdf2(sha256Hash");
+    expect(source).toContain("crypto.subtle.deriveBits");
+    expect(source).toContain('"PBKDF2"');
+    expect(source).not.toContain("@noble/hashes");
     expect(source).not.toContain("pbkdf2Sync");
-    expect(source).not.toContain("deriveBits");
-    expect(source).not.toContain('importKey("raw", encoder.encode(password), "PBKDF2"');
   });
 
   it("encrypts and decrypts a token without storing plaintext", async () => {

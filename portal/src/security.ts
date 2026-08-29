@@ -1,10 +1,7 @@
-import { pbkdf2 } from "@noble/hashes/pbkdf2.js";
-import { sha256 as sha256Hash } from "@noble/hashes/sha2.js";
-
 const encoder = new TextEncoder();
 const PASSWORD_MIN_LENGTH = 12;
 const PASSWORD_MAX_LENGTH = 128;
-export const PASSWORD_ITERATIONS = 310_000;
+export const PASSWORD_ITERATIONS = 20_000;
 
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -36,11 +33,20 @@ export function constantTimeEqual(left: Uint8Array, right: Uint8Array): boolean 
   return difference === 0;
 }
 
-function derivePassword(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
-  return Promise.resolve(pbkdf2(sha256Hash, encoder.encode(password), salt, {
-    c: iterations,
-    dkLen: 32,
-  }));
+async function derivePassword(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    bufferSource(encoder.encode(password)),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  return new Uint8Array(await crypto.subtle.deriveBits({
+    name: "PBKDF2",
+    hash: "SHA-256",
+    salt: bufferSource(salt),
+    iterations,
+  }, key, 256));
 }
 
 export function validatePassword(password: string): void {
@@ -64,7 +70,7 @@ export async function hashPassword(password: string, iterations = PASSWORD_ITERA
 export async function verifyPassword(
   password: string, hash: string, salt: string, iterations: number,
 ): Promise<boolean> {
-  if (password.length > PASSWORD_MAX_LENGTH || iterations < 100_000 || iterations > 2_000_000) return false;
+  if (password.length > PASSWORD_MAX_LENGTH || iterations < 10_000 || iterations > 100_000) return false;
   try {
     return constantTimeEqual(
       await derivePassword(password, base64UrlToBytes(salt), iterations),

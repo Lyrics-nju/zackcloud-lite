@@ -33,7 +33,6 @@
     "deploy:dry-run": "wrangler deploy --dry-run --env staging --outdir dist/subscription && wrangler deploy --dry-run --config portal/wrangler.jsonc --outdir ../dist/portal"
   },
   "dependencies": {
-    "@noble/hashes": "^2.4.0",
     "yaml": "^2.8.1"
   },
   "devDependencies": {

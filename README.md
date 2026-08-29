@@ -36,7 +36,7 @@ npm run portal:dev
 
 生产配置只应通过 Worker Secret 或 env binding 提供。所需名称为 `TOKEN_ENCRYPTION_KEY`、`ADMIN_USERNAME`、`ADMIN_PASSWORD_HASH`，可选名称为 `REGISTRATION_INVITE_HASH`、`TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY`、`PORTAL_ORIGIN`、`ZACKCLOUD_PUBLIC_BASE_URL`。不要把值写入 Git、README 或 shell 历史。
 
-- 用户密码使用 PBKDF2-HMAC-SHA256（随机 salt，生产默认 310,000 次）；管理员密码使用同一可移植 hash 格式。
+- 用户密码使用运行时原生 WebCrypto PBKDF2-HMAC-SHA256（16 字节随机 salt，默认 20,000 次）；该参数按 Cloudflare Workers Free plan 的真实 CPU 指标选定，管理员密码使用同一版本化可移植 hash 格式。
 - 管理员 hash 工具只从 stdin 读取密码，不接受命令行参数：`npm run admin:hash-password`。
 - 订阅 token 使用 256-bit 安全随机数；D1 保存 SHA-256 查找值和 AES-256-GCM 密文，不保存明文。
 - 会话是不可预测的 opaque token，D1 只保存 hash；cookie 使用 `HttpOnly`、`Secure`、`SameSite=Lax`。
