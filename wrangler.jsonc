@@ -7,6 +7,13 @@
   "env": {
     "staging": {
       "name": "zackcloud-lite-staging",
+      "d1_databases": [
+        {
+          "binding": "AUTH_DB",
+          "database_name": "zackcloud-auth-local",
+          "database_id": "local"
+        }
+      ],
       "kv_namespaces": [
         {
           "binding": "SUBSCRIPTION_STORE",

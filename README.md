@@ -1,6 +1,49 @@
 # ZackCloud Lite（扎克云 Lite）
 
-ZackCloud Lite V0.5 是供少数朋友免费使用的私人订阅整理与静态分发服务。正式朋友订阅入口为 `https://sub.zackcloud.site`；V0.3 的 Cloudflare Worker、KV snapshot 和 updater 数据链路保持不变。Worker 只分发预生成配置，不承担代理流量，也不在朋友刷新订阅时访问上游。
+ZackCloud Lite V0.6 是供少数朋友免费使用的私人订阅整理与静态分发服务。正式朋友订阅入口为 `https://sub.zackcloud.site`；V0.3/V0.4 的 Cloudflare Worker、KV snapshot 和 updater 数据链路保持不变。Worker 只分发预生成配置，不承担代理流量，也不在朋友刷新订阅时访问上游。
+
+V0.6 新增一个彼此独立的用户门户 Worker。门户负责注册、登录、审批和订阅凭据生命周期；订阅 Worker 继续只负责认证和分发。门户的计划入口是 `https://zackcloud.site`，订阅入口仍为 `https://sub.zackcloud.site`。
+
+## V0.6 双 Worker 架构
+
+```text
+浏览器 → zackcloud.site → Portal Worker → D1 AUTH_DB
+Clash / Mihomo → sub.zackcloud.site → Subscription Worker → D1 AUTH_DB → KV snapshot
+管理员 → Portal Worker → 审批 / 禁用 / 轮换 / 审计
+```
+
+- `portal/` 是独立的 `zackcloud-portal` Worker，拥有独立 Wrangler 配置和 D1 migration。
+- 新用户注册后状态为 `PENDING`，只有管理员审批成功才会在同一 D1 batch 中创建订阅凭据并变为 `APPROVED`。
+- 用户登录后可看到申请状态；仅已审批且未过期的用户能通过受保护 API 获取自己的订阅地址。初始 HTML 不包含原始 token。
+- Subscription Worker 优先用 token 的 SHA-256 查 D1；查不到或 D1 暂不可用时继续兼容现有 `FRIENDS_CONFIG_JSON` / `ALLOWED_TOKENS`。D1 中明确存在但已禁用、拒绝或过期的记录不会回退绕过状态。
+- 现有 Friend Management CLI 保留作为恢复与兼容工具，Portal 不读取或依赖本地 `friends.json`。
+
+### D1 schema 与本地开发
+
+`portal/migrations/0001_auth.sql` 创建 `users`、`subscription_credentials`、`sessions` 和 `audit_logs`。本地 D1 状态保存在 Wrangler 的忽略目录中，不得提交。
+
+所有命令仍必须在 WSL 中运行：
+
+```bash
+npm run db:migrate:local
+npm run portal:test
+npm run portal:dev
+```
+
+本地门户由 Wrangler 提供；注册、登录、审批、禁用、启用、设置期限、轮换、删除和审计均有自动化生命周期测试。`deploy:dry-run` 会分别构建 Subscription Worker 和 Portal Worker，但不会部署。
+
+### 门户 secrets 与安全模型
+
+生产配置只应通过 Worker Secret 或 env binding 提供。所需名称为 `TOKEN_ENCRYPTION_KEY`、`ADMIN_USERNAME`、`ADMIN_PASSWORD_HASH`，可选名称为 `REGISTRATION_INVITE_HASH`、`TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY`、`PORTAL_ORIGIN`、`ZACKCLOUD_PUBLIC_BASE_URL`。不要把值写入 Git、README 或 shell 历史。
+
+- 用户密码使用 PBKDF2-HMAC-SHA256（随机 salt，生产默认 310,000 次）；管理员密码使用同一可移植 hash 格式。
+- 管理员 hash 工具只从 stdin 读取密码，不接受命令行参数：`npm run admin:hash-password`。
+- 订阅 token 使用 256-bit 安全随机数；D1 保存 SHA-256 查找值和 AES-256-GCM 密文，不保存明文。
+- 会话是不可预测的 opaque token，D1 只保存 hash；cookie 使用 `HttpOnly`、`Secure`、`SameSite=Lax`。
+- 所有状态变更同时验证精确 Origin 和 CSRF token。门户发送 CSP、frame、MIME sniffing、referrer 和 permissions 安全响应头。
+- Cloudflare Turnstile 为可选项；配置 site/secret key 后注册页和服务端验证同时启用，未配置时不加载第三方脚本。
+
+管理员账号不是 D1 普通用户。上线前通过 secrets 配置管理员用户名和 hash；审批、拒绝、禁用、启用、过期时间、token 轮换和删除都会写入 `audit_logs`。V0.6 不执行真实 D1 创建、域名绑定或 production 部署。
 
 ## 三条数据流
 
@@ -196,6 +239,7 @@ CUSTOM_DOMAIN_URL="https://sub.zackcloud.site" npm run verify:staging
 - 不记录请求 URL、token、上游地址、订阅正文、节点或代理凭据。
 - 不在项目目录保存真实 snapshot，不上传订阅 Artifact。
 - 不透传上游网站、Location、Cookie、Server 或异常正文。
-- 不使用 D1、R2、Durable Objects、数据库或完整管理后台。
+- D1 仅保存门户身份、加密订阅凭据、会话 hash 与安全审计；订阅 YAML 仍只保存在现有 KV snapshot，不进入 D1。
+- 不使用 R2、Durable Objects，也不把真实订阅、上游地址或客户端代理流量写入数据库。
 - 不实现 Xray、Mihomo、VLESS、Trojan、WireGuard、TCP、UDP 或 WebSocket 流量中转。
 - `.dev.vars`、`.env`、`node_modules`、`dist` 和 Wrangler 临时文件均被 Git 忽略。

@@ -7,6 +7,11 @@ staging-headers.txt
 .env
 .env.*
 .wrangler/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
 dist/
 coverage/
 *.log

@@ -49,6 +49,7 @@ const forbiddenTracked = tracked.filter((path) =>
   path.startsWith("dist/") || path.startsWith(".wrangler/") || path.startsWith("runtime/") ||
   path.includes("real-subscription") || path.endsWith("staging-friends.json") ||
   path.endsWith("staging-subscription.yaml") || path.endsWith("staging-headers.txt") ||
+  /\.(?:db|db-shm|db-wal|sqlite|sqlite3)$/i.test(path) ||
   path === "friends.json" || path.endsWith("/friends.json"));
 
 const workflowFile = files.find(({ relative }) => relative === ".github/workflows/update-subscription.yml");

@@ -52,7 +52,7 @@ export function createHandler() {
 
     let token: string;
     try { token = decodeURIComponent(match[1]); } catch { return json({ error: "not_found" }, 404); }
-    if (!isTokenAllowed(token, env)) return json({ error: "not_found" }, 404);
+    if (!await isTokenAllowed(token, env)) return json({ error: "not_found" }, 404);
 
     if (!env.SUBSCRIPTION_STORE) return json({ error: "subscription_temporarily_unavailable" }, 503);
     try {

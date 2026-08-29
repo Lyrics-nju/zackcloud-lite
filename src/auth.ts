@@ -1,4 +1,5 @@
 import type { Env } from "./types";
+import { sha256Hex } from "./hash";
 
 interface FriendConfig {
   token: string;
@@ -30,9 +31,29 @@ function validFriend(friend: FriendConfig, now: number): boolean {
   return Number.isFinite(expiresAt) && expiresAt > now;
 }
 
-export function isTokenAllowed(token: string, env: Env, now = Date.now()): boolean {
+interface D1CredentialStatus {
+  status: string;
+  expires_at: string | null;
+}
+
+export async function isTokenAllowed(token: string, env: Env, now = Date.now()): Promise<boolean> {
   if (!token || token.length > 512 || token.includes("/") || token.includes("\\") ||
-      [...token].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) return false;
+    [...token].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) return false;
+  if (env.AUTH_DB) {
+    try {
+      const credential = await env.AUTH_DB.prepare(`SELECT users.status, users.expires_at
+        FROM subscription_credentials
+        JOIN users ON users.id = subscription_credentials.user_id
+        WHERE subscription_credentials.token_hash = ? LIMIT 1`)
+        .bind(await sha256Hex(token)).first<D1CredentialStatus>();
+      if (credential) {
+        return credential.status === "APPROVED" &&
+          (credential.expires_at === null || Date.parse(credential.expires_at) > now);
+      }
+    } catch {
+      // During migration, a D1 outage must not revoke an otherwise valid legacy friend.
+    }
+  }
   const legacy = new Set((env.ALLOWED_TOKENS ?? "").split(",").map((item) => item.trim()).filter(Boolean));
   if (legacy.has(token)) return true;
   return parseFriends(env.FRIENDS_CONFIG_JSON).some((friend) => friend.token === token && validFriend(friend, now));

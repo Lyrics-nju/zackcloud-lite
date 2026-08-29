@@ -5,7 +5,7 @@ export default tseslint.config(
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: ["dist/**", "coverage/**", "node_modules/**", ".wrangler/**"],
+    ignores: ["**/dist/**", "**/coverage/**", "**/node_modules/**", "**/.wrangler/**"],
   },
   {
     files: ["scripts/**/*.{mjs,ts}"],

@@ -1,6 +1,6 @@
 {
   "name": "zackcloud-lite",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -26,7 +26,11 @@
     "friends:migrate-staging": "tsx scripts/friends.ts migrate-staging",
     "friend:add-and-deploy": "tsx scripts/friends.ts add-and-deploy",
     "friend:verify": "tsx scripts/friends.ts verify",
-    "deploy:dry-run": "wrangler deploy --dry-run --env staging --outdir dist"
+    "portal:dev": "wrangler dev --config portal/wrangler.jsonc --local",
+    "portal:test": "vitest run test/portal*.test.ts",
+    "db:migrate:local": "wrangler d1 migrations apply AUTH_DB --local --config portal/wrangler.jsonc",
+    "admin:hash-password": "tsx scripts/admin-hash-password.ts",
+    "deploy:dry-run": "wrangler deploy --dry-run --env staging --outdir dist/subscription && wrangler deploy --dry-run --config portal/wrangler.jsonc --outdir ../dist/portal"
   },
   "dependencies": {
     "yaml": "^2.8.1"
