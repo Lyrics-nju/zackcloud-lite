@@ -109,6 +109,31 @@ describe("staging friend token file", () => {
     });
   });
 
+  it("selects a specifically named staging friend without exposing other tokens", async () => {
+    await withFile(JSON.stringify([
+      { name: "someone-else", token: "other-valid-example", enabled: true, expiresAt: null },
+      { name: "owner-staging", token: "owner-valid-example", enabled: true, expiresAt: null },
+    ]), async (path) => {
+      await expect(readStagingFriendToken(path, Date.parse("2026-01-01T00:00:00Z"), "owner-staging"))
+        .resolves.toBe("owner-valid-example");
+    });
+  });
+
+  it("returns only the safe unavailable code when a named friend is absent", async () => {
+    const sensitiveExample = "not-the-selected-token-example";
+    await withFile(JSON.stringify([
+      { name: "someone-else", token: sensitiveExample, enabled: true, expiresAt: null },
+    ]), async (path) => {
+      try {
+        await readStagingFriendToken(path, Date.now(), "owner-staging");
+        throw new Error("expected failure");
+      } catch (error) {
+        expect(String(error)).toContain("STAGING_FRIEND_TOKEN_NOT_AVAILABLE");
+        expect(String(error)).not.toContain(sensitiveExample);
+      }
+    });
+  });
+
   it("never includes a token in an error", async () => {
     const sensitiveExample = "never-print-this-example";
     await withFile(JSON.stringify([{ token: sensitiveExample, enabled: false, expiresAt: null }]), async (path) => {
@@ -183,5 +208,12 @@ describe("GitHub updater workflow audit", () => {
   it("does not read .dev.vars during security scanning", () => {
     const scanner = readFileSync(new URL("../scripts/security-scan.mjs", import.meta.url), "utf8");
     expect(scanner).not.toContain('readFile(new URL("../.dev.vars"');
+  });
+
+  it("only exempts public D1 database IDs in Wrangler config from UUID scanning", () => {
+    const scanner = readFileSync(new URL("../scripts/security-scan.mjs", import.meta.url), "utf8");
+    expect(scanner).toContain('file.relative.endsWith("wrangler.jsonc")');
+    expect(scanner).toContain('("database_id"\\s*:\\s*")');
+    expect(scanner).toContain("[PUBLIC_D1_DATABASE_ID]");
   });
 });

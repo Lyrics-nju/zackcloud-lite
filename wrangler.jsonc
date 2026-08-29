@@ -10,8 +10,8 @@
       "d1_databases": [
         {
           "binding": "AUTH_DB",
-          "database_name": "zackcloud-auth-local",
-          "database_id": "local"
+          "database_name": "zackcloud-auth",
+          "database_id": "d2cec84f-1945-4e00-a235-f6a647799c70"
         }
       ],
       "kv_namespaces": [

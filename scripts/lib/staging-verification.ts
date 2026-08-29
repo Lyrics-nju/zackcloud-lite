@@ -92,13 +92,18 @@ function validToken(token: unknown): token is string {
     ![...token].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
 }
 
-export async function readStagingFriendToken(filePath: string, now = Date.now()): Promise<string> {
+export async function readStagingFriendToken(
+  filePath: string,
+  now = Date.now(),
+  requiredName?: string,
+): Promise<string> {
   try {
     const parsed: unknown = JSON.parse(await readFile(filePath, "utf8"));
     if (!Array.isArray(parsed)) throw new Error();
     for (const entry of parsed) {
       if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
       const friend = entry as Record<string, unknown>;
+      if (requiredName && friend.name !== requiredName) continue;
       if (friend.enabled !== true || !validToken(friend.token)) continue;
       if (friend.expiresAt === null) return friend.token;
       if (typeof friend.expiresAt === "string") {

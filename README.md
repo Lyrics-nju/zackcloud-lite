@@ -43,7 +43,46 @@ npm run portal:dev
 - 所有状态变更同时验证精确 Origin 和 CSRF token。门户发送 CSP、frame、MIME sniffing、referrer 和 permissions 安全响应头。
 - Cloudflare Turnstile 为可选项；配置 site/secret key 后注册页和服务端验证同时启用，未配置时不加载第三方脚本。
 
-管理员账号不是 D1 普通用户。上线前通过 secrets 配置管理员用户名和 hash；审批、拒绝、禁用、启用、过期时间、token 轮换和删除都会写入 `audit_logs`。V0.6 不执行真实 D1 创建、域名绑定或 production 部署。
+管理员账号不是 D1 普通用户。上线前通过 secrets 配置管理员用户名和 hash；审批、拒绝、禁用、启用、过期时间、token 轮换和删除都会写入 `audit_logs`。仓库配置不会自动绑定根域，也不包含 production 部署脚本。
+
+### V0.6 staging 部署准备
+
+远程 D1 使用数据库名 `zackcloud-auth`，Portal 与 Subscription Worker 都以 `AUTH_DB` 绑定同一个数据库。Portal staging Worker 名固定为 `zackcloud-portal-staging`；不要把 `zackcloud.site` 根域绑定到 staging Worker。完整生命周期验证前，只允许使用 workers.dev，或由管理员在 Cloudflare Dashboard 手工绑定 `portal-staging.zackcloud.site`。
+
+首次准备或核对远程 migration 时必须明确使用 `--remote`：
+
+```bash
+npx wrangler d1 migrations list zackcloud-auth --remote --config portal/wrangler.jsonc
+npx wrangler d1 migrations apply zackcloud-auth --remote --config portal/wrangler.jsonc
+```
+
+Portal 缺少任一强制 secret 时不得部署。下面的 WSL 模板不会把密码、hash 或加密密钥写入参数、文件或终端标准输出：
+
+```bash
+read -r -p "Admin username: " ZACKCLOUD_ADMIN_USERNAME_INPUT
+printf '%s' "$ZACKCLOUD_ADMIN_USERNAME_INPUT" | npx wrangler secret put ADMIN_USERNAME --config portal/wrangler.jsonc
+unset ZACKCLOUD_ADMIN_USERNAME_INPUT
+
+read -r -s -p "Admin password: " ZACKCLOUD_ADMIN_PASSWORD_INPUT
+printf '\n'
+printf '%s' "$ZACKCLOUD_ADMIN_PASSWORD_INPUT" \
+  | npm run --silent admin:hash-password \
+  | npx wrangler secret put ADMIN_PASSWORD_HASH --config portal/wrangler.jsonc
+unset ZACKCLOUD_ADMIN_PASSWORD_INPUT
+
+openssl rand -base64 32 \
+  | tr '+/' '-_' \
+  | tr -d '=\n' \
+  | npx wrangler secret put TOKEN_ENCRYPTION_KEY --config portal/wrangler.jsonc
+```
+
+`TOKEN_ENCRYPTION_KEY` 必须解码为 32 bytes；上述命令直接生成符合代码要求的 base64url 值并通过管道提交。设置后只核对 secret 名称，不读取值：
+
+```bash
+npx wrangler secret list --config portal/wrangler.jsonc
+```
+
+只有确认三项名称齐全后，才可部署 `zackcloud-portal-staging`。Turnstile 在 staging 可暂不配置，相关 binding 与服务端验证支持保留。
 
 ## 三条数据流
 

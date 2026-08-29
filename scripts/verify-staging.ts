@@ -169,7 +169,11 @@ async function main(): Promise<void> {
   const stagingUrlValue = process.env.STAGING_URL?.trim();
   if (!stagingUrlValue && !customDomainUrl) resolveStagingUrl(undefined);
   const proxy = resolveTestProxy(process.env);
-  const token = await readStagingFriendToken(resolveStagingFriendsFile(process.env));
+  const token = await readStagingFriendToken(
+    resolveStagingFriendsFile(process.env),
+    Date.now(),
+    process.env.ZACKCLOUD_STAGING_FRIEND_NAME?.trim() || undefined,
+  );
   if (stagingUrlValue) await verifyWorkersDev(resolveStagingUrl(stagingUrlValue), proxy, token);
   if (customDomainUrl) await verifyCustomDomain(customDomainUrl, proxy, token);
 }
