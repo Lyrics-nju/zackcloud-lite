@@ -11,5 +11,11 @@
       "database_id": "d2cec84f-1945-4e00-a235-f6a647799c70",
       "migrations_dir": "migrations"
     }
+  ],
+  "routes": [
+    {
+      "pattern": "portal-staging.zackcloud.site",
+      "custom_domain": true
+    }
   ]
 }
