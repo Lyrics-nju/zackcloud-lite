@@ -1,7 +1,12 @@
+import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join } from "node:path";
+
 export type StagingConfigErrorCode =
   | "STAGING_URL_NOT_CONFIGURED"
   | "STAGING_URL_INVALID"
-  | "TEST_PROXY_INVALID";
+  | "TEST_PROXY_INVALID"
+  | "STAGING_FRIEND_TOKEN_NOT_AVAILABLE";
 
 export class StagingConfigError extends Error {
   constructor(readonly code: StagingConfigErrorCode) {
@@ -39,4 +44,38 @@ export function resolveTestProxy(environment: Record<string, string | undefined>
     if (error instanceof StagingConfigError) throw error;
     throw new StagingConfigError("TEST_PROXY_INVALID");
   }
+}
+
+export function resolveStagingFriendsFile(
+  environment: Record<string, string | undefined>,
+  homeDirectory = homedir(),
+): string {
+  return environment.ZACKCLOUD_STAGING_FRIENDS_FILE?.trim() ||
+    join(homeDirectory, ".local", "share", "zackcloud-lite", "staging-friends.json");
+}
+
+function validToken(token: unknown): token is string {
+  return typeof token === "string" && token.length > 0 && token.length <= 512 &&
+    !token.includes("/") && !token.includes("\\") &&
+    ![...token].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
+}
+
+export async function readStagingFriendToken(filePath: string, now = Date.now()): Promise<string> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(filePath, "utf8"));
+    if (!Array.isArray(parsed)) throw new Error();
+    for (const entry of parsed) {
+      if (typeof entry !== "object" || entry === null || Array.isArray(entry)) continue;
+      const friend = entry as Record<string, unknown>;
+      if (friend.enabled !== true || !validToken(friend.token)) continue;
+      if (friend.expiresAt === null) return friend.token;
+      if (typeof friend.expiresAt === "string") {
+        const expiresAt = Date.parse(friend.expiresAt);
+        if (Number.isFinite(expiresAt) && expiresAt > now) return friend.token;
+      }
+    }
+  } catch {
+    // Every file and content failure intentionally maps to the same safe code.
+  }
+  throw new StagingConfigError("STAGING_FRIEND_TOKEN_NOT_AVAILABLE");
 }

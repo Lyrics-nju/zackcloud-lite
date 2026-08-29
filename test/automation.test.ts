@@ -1,7 +1,16 @@
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parse } from "yaml";
 import { describe, expect, it } from "vitest";
-import { resolveStagingUrl, resolveTestProxy, StagingConfigError } from "../scripts/lib/staging-verification";
+import {
+  readStagingFriendToken,
+  resolveStagingFriendsFile,
+  resolveStagingUrl,
+  resolveTestProxy,
+  StagingConfigError,
+} from "../scripts/lib/staging-verification";
 
 const workflowText = readFileSync(new URL("../.github/workflows/update-subscription.yml", import.meta.url), "utf8");
 const workflow = parse(workflowText) as {
@@ -53,6 +62,65 @@ describe("staging verification configuration", () => {
     "rejects unsafe proxy configuration",
     (value) => expect(() => resolveTestProxy({ ZACKCLOUD_TEST_PROXY: value })).toThrowError("TEST_PROXY_INVALID"),
   );
+
+  it("uses the protected staging friend file by default and allows an override", () => {
+    expect(resolveStagingFriendsFile({}, "/safe-home"))
+      .toBe(join("/safe-home", ".local", "share", "zackcloud-lite", "staging-friends.json"));
+    expect(resolveStagingFriendsFile({ ZACKCLOUD_STAGING_FRIENDS_FILE: "/safe/custom.json" }, "/safe-home"))
+      .toBe("/safe/custom.json");
+  });
+});
+
+describe("staging friend token file", () => {
+  async function withFile(contents: string, callback: (path: string) => Promise<void>): Promise<void> {
+    const directory = await mkdtemp(join(tmpdir(), "zackcloud-lite-test-"));
+    const path = join(directory, "friends.json");
+    try {
+      await writeFile(path, contents, "utf8");
+      await callback(path);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+
+  it("rejects a missing file with the safe error code", async () => {
+    await expect(readStagingFriendToken(join(tmpdir(), "zackcloud-lite-file-does-not-exist.json")))
+      .rejects.toThrowError("STAGING_FRIEND_TOKEN_NOT_AVAILABLE");
+  });
+
+  it.each([
+    ["invalid JSON", "{"],
+    ["a non-array document", "{}"],
+    ["an empty array", "[]"],
+    ["a disabled friend", JSON.stringify([{ token: "disabled-example", enabled: false, expiresAt: null }])],
+    ["an expired friend", JSON.stringify([{ token: "expired-example", enabled: true, expiresAt: "2020-01-01T00:00:00Z" }])],
+  ])("rejects %s", async (_name, contents) => {
+    await withFile(contents, async (path) => {
+      await expect(readStagingFriendToken(path, Date.parse("2026-01-01T00:00:00Z")))
+        .rejects.toThrowError("STAGING_FRIEND_TOKEN_NOT_AVAILABLE");
+    });
+  });
+
+  it("returns an enabled, unexpired friend token", async () => {
+    await withFile(JSON.stringify([
+      { token: "valid-example", enabled: true, expiresAt: "2027-01-01T00:00:00Z" },
+    ]), async (path) => {
+      await expect(readStagingFriendToken(path, Date.parse("2026-01-01T00:00:00Z"))).resolves.toBe("valid-example");
+    });
+  });
+
+  it("never includes a token in an error", async () => {
+    const sensitiveExample = "never-print-this-example";
+    await withFile(JSON.stringify([{ token: sensitiveExample, enabled: false, expiresAt: null }]), async (path) => {
+      try {
+        await readStagingFriendToken(path);
+        throw new Error("expected failure");
+      } catch (error) {
+        expect(String(error)).toContain("STAGING_FRIEND_TOKEN_NOT_AVAILABLE");
+        expect(String(error)).not.toContain(sensitiveExample);
+      }
+    });
+  });
 });
 
 describe("GitHub updater workflow audit", () => {

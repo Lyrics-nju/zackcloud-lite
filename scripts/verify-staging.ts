@@ -5,38 +5,13 @@ import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { parse } from "yaml";
 import { sha256Hex } from "../src/hash";
-import { resolveStagingUrl, resolveTestProxy, StagingConfigError } from "./lib/staging-verification";
-
-function parseDevVars(text: string): Map<string, string> {
-  const values = new Map<string, string>();
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const separator = line.indexOf("=");
-    if (separator > 0) {
-      const key = line.slice(0, separator).trim();
-      const rawValue = line.slice(separator + 1).trim();
-      let value = rawValue;
-      if (rawValue.startsWith("'") && rawValue.endsWith("'")) value = rawValue.slice(1, -1);
-      else if (rawValue.startsWith('"') && rawValue.endsWith('"')) {
-        try { value = JSON.parse(rawValue) as string; } catch { value = rawValue.slice(1, -1); }
-      }
-      values.set(key, value);
-    }
-  }
-  return values;
-}
-
-function selectToken(values: Map<string, string>): string {
-  try {
-    const friends = JSON.parse(values.get("FRIENDS_CONFIG_JSON") ?? "[]") as Array<{ token?: unknown; enabled?: unknown }>;
-    const token = friends.find((friend) => friend.enabled === true && typeof friend.token === "string")?.token;
-    if (typeof token === "string") return token;
-  } catch {
-    // Fall through to the legacy local token.
-  }
-  return (values.get("ALLOWED_TOKENS") ?? "").split(",").map((token) => token.trim()).find(Boolean) ?? "";
-}
+import {
+  readStagingFriendToken,
+  resolveStagingFriendsFile,
+  resolveStagingUrl,
+  resolveTestProxy,
+  StagingConfigError,
+} from "./lib/staging-verification";
 
 function curlStatus(url: string, output: string, proxy?: string, headerFile?: string, headers: string[] = []): number {
   const args = ["--silent", "--show-error", "--max-time", "30", "--output", output, "--write-out", "%{http_code}"];
@@ -61,9 +36,7 @@ function parseHeaders(text: string): Map<string, string> {
 async function main(): Promise<void> {
   const baseUrl = resolveStagingUrl(process.env.STAGING_URL);
   const proxy = resolveTestProxy(process.env);
-  const values = parseDevVars(await readFile(new URL("../.dev.vars", import.meta.url), "utf8"));
-  const token = selectToken(values);
-  if (!token) throw new Error("STAGING_TOKEN_NOT_CONFIGURED");
+  const token = await readStagingFriendToken(resolveStagingFriendsFile(process.env));
 
   const identifier = randomUUID();
   const scratch = tmpdir();
@@ -83,8 +56,11 @@ async function main(): Promise<void> {
       console.log(`HEALTH=${health}`);
       console.log(`INVALID_TOKEN=${invalid}`);
       console.log(`VALID_SUBSCRIPTION=${valid}`);
+      console.log("ETAG_PRESENT=NOT_RUN");
       console.log("ETAG_TEST=NOT_RUN");
-      console.log("METADATA=NOT_RUN");
+      console.log("SUBSCRIPTION_USERINFO_HEADER=NOT_RUN");
+      console.log("PROFILE_UPDATE_INTERVAL_HEADER=NOT_RUN");
+      console.log("VERIFY_STAGING=FAIL");
       throw new Error("STAGING_HTTP_VERIFICATION_FAILED");
     }
 
@@ -93,8 +69,10 @@ async function main(): Promise<void> {
     const document = parse(yaml) as { proxies?: unknown[] };
     const headers = parseHeaders(await readFile(headersFile, "utf8"));
     const etag = headers.get("etag") ?? "";
+    const etagPresent = etag.length > 0;
     const hashMatch = etag === `"${await sha256Hex(yaml)}"`;
-    const metadataPresent = headers.has("subscription-userinfo") && headers.has("profile-update-interval");
+    const subscriptionUserinfoPresent = headers.has("subscription-userinfo");
+    const profileUpdateIntervalPresent = headers.has("profile-update-interval");
     const etagStatus = curlStatus(
       new URL(`/sub/${encodeURIComponent(token)}`, baseUrl).href,
       revalidateOutput,
@@ -103,12 +81,17 @@ async function main(): Promise<void> {
       [`If-None-Match: ${etag}`],
     );
     const etagPass = etagStatus === 304 && hashMatch;
-    if (!Array.isArray(document.proxies) || document.proxies.length === 0 || !etagPass || !metadataPresent) {
+    const contentPass = Array.isArray(document.proxies) && document.proxies.length > 0 && etagPass &&
+      subscriptionUserinfoPresent && profileUpdateIntervalPresent;
+    if (!contentPass) {
       console.log(`HEALTH=${health}`);
       console.log(`INVALID_TOKEN=${invalid}`);
       console.log(`VALID_SUBSCRIPTION=${valid}`);
+      console.log(`ETAG_PRESENT=${etagPresent ? "PASS" : "FAIL"}`);
       console.log(`ETAG_TEST=${etagPass ? "PASS" : "FAIL"}`);
-      console.log(`METADATA=${metadataPresent ? "PASS" : "FAIL"}`);
+      console.log(`SUBSCRIPTION_USERINFO_HEADER=${subscriptionUserinfoPresent ? "PRESENT" : "MISSING"}`);
+      console.log(`PROFILE_UPDATE_INTERVAL_HEADER=${profileUpdateIntervalPresent ? "PRESENT" : "MISSING"}`);
+      console.log("VERIFY_STAGING=FAIL");
       throw new Error("STAGING_CONTENT_VERIFICATION_FAILED");
     }
 
@@ -117,8 +100,11 @@ async function main(): Promise<void> {
     console.log(`HEALTH=${health}`);
     console.log(`INVALID_TOKEN=${invalid}`);
     console.log(`VALID_SUBSCRIPTION=${valid}`);
+    console.log("ETAG_PRESENT=PASS");
     console.log("ETAG_TEST=PASS");
-    console.log("METADATA=PASS");
+    console.log("SUBSCRIPTION_USERINFO_HEADER=PRESENT");
+    console.log("PROFILE_UPDATE_INTERVAL_HEADER=PRESENT");
+    console.log("VERIFY_STAGING=PASS");
   } finally {
     await Promise.all([
       rm(nullOutput, { force: true }),
