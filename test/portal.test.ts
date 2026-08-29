@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { createPortalHandler } from "../portal/src/index";
 import type { NewUser, PortalRepository } from "../portal/src/repository";
@@ -6,9 +7,11 @@ import {
   decryptToken,
   encryptToken,
   hashPassword,
+  PASSWORD_ITERATIONS,
   randomOpaqueToken,
   sha256,
   verifyPassword,
+  verifyPortablePassword,
 } from "../portal/src/security";
 import type {
   AuditRecord,
@@ -385,6 +388,45 @@ describe("administrator workflow", () => {
 });
 
 describe("token encryption and security headers", () => {
+  it("derives and verifies 310000-iteration PBKDF2-SHA256 passwords", async () => {
+    const password = await hashPassword(PASSWORD);
+    expect(password.iterations).toBe(310_000);
+    expect(password.iterations).toBe(PASSWORD_ITERATIONS);
+    expect(await verifyPassword(PASSWORD, password.hash, password.salt, password.iterations)).toBe(true);
+    expect(await verifyPassword("wrong-password-example", password.hash, password.salt, password.iterations)).toBe(false);
+  });
+
+  it("preserves the portable admin hash format and verification", async () => {
+    const portable = await createPortablePasswordHash(PASSWORD);
+    const [algorithm, iterations, salt, hash] = portable.split("$");
+    expect(algorithm).toBe("pbkdf2-sha256");
+    expect(iterations).toBe(String(PASSWORD_ITERATIONS));
+    expect(salt).toBeTruthy();
+    expect(hash).toBeTruthy();
+    expect(await verifyPortablePassword(PASSWORD, portable)).toBe(true);
+    expect(await verifyPortablePassword("wrong-password-example", portable)).toBe(false);
+  });
+
+  it("verifies an existing portable hash derived by the legacy WebCrypto format", async () => {
+    const salt = new Uint8Array(16).fill(7);
+    const legacyKey = await crypto.subtle.importKey(
+      "raw", new TextEncoder().encode(PASSWORD), "PBKDF2", false, ["deriveBits"],
+    );
+    const legacyDerived = new Uint8Array(await crypto.subtle.deriveBits({
+      name: "PBKDF2", hash: "SHA-256", salt, iterations: PASSWORD_ITERATIONS,
+    }, legacyKey, 256));
+    const portable = `pbkdf2-sha256$${PASSWORD_ITERATIONS}$${Buffer.from(salt).toString("base64url")}` +
+      `$${Buffer.from(legacyDerived).toString("base64url")}`;
+    expect(await verifyPortablePassword(PASSWORD, portable)).toBe(true);
+  });
+
+  it("does not use the WebCrypto PBKDF2 deriveBits path", () => {
+    const source = readFileSync(new URL("../portal/src/security.ts", import.meta.url), "utf8");
+    expect(source).toContain("pbkdf2Sync");
+    expect(source).not.toContain("deriveBits");
+    expect(source).not.toContain('importKey("raw", encoder.encode(password), "PBKDF2"');
+  });
+
   it("encrypts and decrypts a token without storing plaintext", async () => {
     const raw = randomOpaqueToken();
     const encrypted = await encryptToken(raw, ENCRYPTION_KEY);

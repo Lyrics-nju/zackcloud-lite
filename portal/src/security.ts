@@ -1,3 +1,5 @@
+import { pbkdf2Sync } from "node:crypto";
+
 const encoder = new TextEncoder();
 const PASSWORD_MIN_LENGTH = 12;
 const PASSWORD_MAX_LENGTH = 128;
@@ -34,13 +36,7 @@ export function constantTimeEqual(left: Uint8Array, right: Uint8Array): boolean 
 }
 
 async function derivePassword(password: string, salt: Uint8Array, iterations: number): Promise<Uint8Array> {
-  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
-  return new Uint8Array(await crypto.subtle.deriveBits({
-    name: "PBKDF2",
-    hash: "SHA-256",
-    salt: bufferSource(salt),
-    iterations,
-  }, key, 256));
+  return new Uint8Array(pbkdf2Sync(password, salt, iterations, 32, "sha256"));
 }
 
 export function validatePassword(password: string): void {

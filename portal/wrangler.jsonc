@@ -3,6 +3,7 @@
   "name": "zackcloud-portal-staging",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-29",
+  "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "d1_databases": [
     {
