@@ -49,6 +49,30 @@ function isProxyNode(value: unknown): value is ProxyNode {
     typeof value.type === "string" && typeof value.server === "string";
 }
 
+function rewriteRulePolicy(rule: unknown, replacements: ReadonlyMap<string, string>): unknown {
+  if (typeof rule !== "string") return rule;
+  const parts = rule.split(",");
+  const last = parts.length - 1;
+  const policyIndex = parts[last]?.trim().toLowerCase() === "no-resolve" ? last - 1 : last;
+  if (policyIndex < 0) return rule;
+  const policy = parts[policyIndex]?.trim();
+  const replacement = policy ? replacements.get(policy) : undefined;
+  if (!replacement) return rule;
+  parts[policyIndex] = replacement;
+  return parts.join(",");
+}
+
+function rewriteRuleCollections(document: Record<string, unknown>, replacements: ReadonlyMap<string, string>): void {
+  if (Array.isArray(document.rules)) {
+    document.rules = document.rules.map((rule) => rewriteRulePolicy(rule, replacements));
+  }
+  if (isRecord(document["sub-rules"])) {
+    for (const [name, rules] of Object.entries(document["sub-rules"])) {
+      if (Array.isArray(rules)) document["sub-rules"][name] = rules.map((rule) => rewriteRulePolicy(rule, replacements));
+    }
+  }
+}
+
 export const clashConverter: SubscriptionConverter = {
   id: "clash-yaml",
 
@@ -71,11 +95,13 @@ export const clashConverter: SubscriptionConverter = {
 
     const counts = new Map<Region, number>();
     const byRegion = new Map<Region, string[]>();
+    const replacements = new Map<string, string>();
     const renamed = document.proxies.map((proxy) => {
       const { region, flag } = classifyRegion(proxy.name);
       const sequence = (counts.get(region) ?? 0) + 1;
       counts.set(region, sequence);
       const name = `${flag} 扎克云 · ${region} ${String(sequence).padStart(2, "0")}`;
+      replacements.set(proxy.name, name);
       byRegion.set(region, [...(byRegion.get(region) ?? []), name]);
       return { ...proxy, name };
     });
@@ -84,12 +110,20 @@ export const clashConverter: SubscriptionConverter = {
     const automatic = "🚀 扎克云 · 自动选择";
     const manual = "👆 扎克云 · 手动选择";
     const fallback = "♻️ 扎克云 · 故障转移";
+    const primary = "ZackCloud";
+    if (Array.isArray(document["proxy-groups"])) {
+      for (const group of document["proxy-groups"]) {
+        if (isRecord(group) && typeof group.name === "string") replacements.set(group.name, primary);
+      }
+    }
     const regionGroups = REGION_GROUPS.flatMap(({ region, name }) => {
       const names = byRegion.get(region) ?? [];
       return names.length > 0 ? [{ name, type: "select", proxies: names }] : [];
     });
+    rewriteRuleCollections(document, replacements);
     document.proxies = renamed;
     document["proxy-groups"] = [
+      { name: primary, type: "select", proxies: [automatic, fallback, ...regionGroups.map(({ name }) => name), ...allNames, "DIRECT"] },
       { name: automatic, type: "url-test", proxies: allNames, url: "https://www.gstatic.com/generate_204", interval: 300 },
       { name: fallback, type: "fallback", proxies: allNames, url: "https://www.gstatic.com/generate_204", interval: 300 },
       { name: manual, type: "select", proxies: [automatic, fallback, ...regionGroups.map(({ name }) => name), ...allNames] },

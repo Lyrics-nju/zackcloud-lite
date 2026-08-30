@@ -27,6 +27,8 @@ export interface ValidationSummary {
   nonNameFieldsIdentical: boolean;
   uniqueNames: boolean;
   groupReferenceCheck: boolean;
+  selectorGroupCheck: boolean;
+  ruleReferenceCheck: boolean;
 }
 
 export interface BuiltSnapshot {
@@ -66,6 +68,22 @@ function withoutName(value: Record<string, unknown>): Record<string, unknown> {
   return copy;
 }
 
+function rulePolicies(document: Record<string, unknown>): string[] {
+  const collections: unknown[][] = [];
+  if (Array.isArray(document.rules)) collections.push(document.rules);
+  if (isRecord(document["sub-rules"])) {
+    for (const rules of Object.values(document["sub-rules"])) if (Array.isArray(rules)) collections.push(rules);
+  }
+  return collections.flat().flatMap((rule) => {
+    if (typeof rule !== "string") return [];
+    const parts = rule.split(",");
+    const last = parts.length - 1;
+    const index = parts[last]?.trim().toLowerCase() === "no-resolve" ? last - 1 : last;
+    const policy = parts[index]?.trim();
+    return policy ? [policy] : [];
+  });
+}
+
 function safeMetadata(headers: Headers): SnapshotMetadata {
   const metadata: SnapshotMetadata = {};
   for (const name of ["subscription-userinfo", "profile-update-interval"] as const) {
@@ -99,13 +117,24 @@ export function validateConvertedYaml(originalYaml: string, convertedYaml: strin
   const uniqueNames = names.length === convertedProxies.length && new Set(names).size === names.length;
   const groups = Array.isArray(converted["proxy-groups"]) ? converted["proxy-groups"].filter(isRecord) : [];
   const groupNames = groups.map((group) => group.name).filter((name): name is string => typeof name === "string");
-  const references = new Set([...names, ...groupNames]);
+  const references = new Set([...names, ...groupNames, "DIRECT", "REJECT"]);
   const groupReferenceCheck = groups.length > 0 && groups.every((group) =>
     Array.isArray(group.proxies) && group.proxies.every((reference) => typeof reference === "string" && references.has(reference)));
+  const selectorGroupCheck = groups.some((group) => group.type === "select" &&
+    Array.isArray(group.proxies) && group.proxies.some((reference) => typeof reference === "string" && names.includes(reference)));
+  const originalGroups = Array.isArray(original["proxy-groups"]) ? original["proxy-groups"].filter(isRecord) : [];
+  const originalNames = new Set([
+    ...originalProxies.map((proxy) => proxy.name).filter((name): name is string => typeof name === "string"),
+    ...originalGroups.map((group) => group.name).filter((name): name is string => typeof name === "string"),
+  ]);
+  const removedNames = new Set([...originalNames].filter((name) => !references.has(name)));
+  const ruleReferenceCheck = rulePolicies(converted).every((policy) => !removedNames.has(policy));
 
   if (!nonNameFieldsIdentical) throw new SnapshotValidationError("proxy_fields_changed");
   if (!uniqueNames) throw new SnapshotValidationError("proxy_names_invalid");
   if (!groupReferenceCheck) throw new SnapshotValidationError("group_reference_invalid");
+  if (!selectorGroupCheck) throw new SnapshotValidationError("selector_group_invalid");
+  if (!ruleReferenceCheck) throw new SnapshotValidationError("rule_reference_invalid");
 
   const regionCounts: Record<string, number> = {};
   const typeCounts: Record<string, number> = {};
@@ -123,6 +152,8 @@ export function validateConvertedYaml(originalYaml: string, convertedYaml: strin
     nonNameFieldsIdentical,
     uniqueNames,
     groupReferenceCheck,
+    selectorGroupCheck,
+    ruleReferenceCheck,
   };
 }
 

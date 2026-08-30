@@ -29,6 +29,8 @@ describe("snapshot construction and validation", () => {
       nonNameFieldsIdentical: true,
       uniqueNames: true,
       groupReferenceCheck: true,
+      selectorGroupCheck: true,
+      ruleReferenceCheck: true,
     });
   });
 
@@ -86,6 +88,31 @@ describe("snapshot construction and validation", () => {
       throw new Error("expected validation failure");
     } catch (error) {
       expect((error as SnapshotValidationError).reason).toBe("group_reference_invalid");
+    }
+  });
+
+  it("requires a select group that directly exposes real proxies", () => {
+    const document = parse(clashConverter.convert(clashYaml));
+    for (const group of document["proxy-groups"]) {
+      if (group.type === "select") group.type = "url-test";
+    }
+    try {
+      validateConvertedYaml(clashYaml, stringify(document));
+      throw new Error("expected validation failure");
+    } catch (error) {
+      expect((error as SnapshotValidationError).reason).toBe("selector_group_invalid");
+    }
+  });
+
+  it("rejects rules that still target a removed upstream group", () => {
+    const original = `${clashYaml}proxy-groups:\n  - { name: Old Group, type: select, proxies: [Hong Kong Premium] }\nrules:\n  - MATCH,Old Group\n`;
+    const document = parse(clashConverter.convert(original));
+    document.rules = ["MATCH,Old Group"];
+    try {
+      validateConvertedYaml(original, stringify(document));
+      throw new Error("expected validation failure");
+    } catch (error) {
+      expect((error as SnapshotValidationError).reason).toBe("rule_reference_invalid");
     }
   });
 

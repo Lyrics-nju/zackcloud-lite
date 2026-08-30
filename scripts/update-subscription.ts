@@ -39,6 +39,8 @@ function printSummary(result: Awaited<ReturnType<typeof buildFromUpstream>>): vo
   console.log(`NON_NAME_FIELDS_IDENTICAL=${result.summary.nonNameFieldsIdentical ? "PASS" : "FAIL"}`);
   console.log(`UNIQUE_NAMES=${result.summary.uniqueNames ? "PASS" : "FAIL"}`);
   console.log(`GROUP_REFERENCE_CHECK=${result.summary.groupReferenceCheck ? "PASS" : "FAIL"}`);
+  console.log(`SELECTOR_GROUP_CHECK=${result.summary.selectorGroupCheck ? "PASS" : "FAIL"}`);
+  console.log(`RULE_REFERENCE_CHECK=${result.summary.ruleReferenceCheck ? "PASS" : "FAIL"}`);
   console.log(`METADATA_WHITELIST=PASS`);
   console.log(`SNAPSHOT_SHA256_PREFIX=${result.snapshot.sha256.slice(0, 8)}`);
 }

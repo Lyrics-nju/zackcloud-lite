@@ -38,9 +38,10 @@ describe("Clash converter", () => {
     }
   });
 
-  it("creates the three core groups and only non-empty region groups", () => {
+  it("creates a canonical selector, the three core groups, and only non-empty region groups", () => {
     const output = parse(clashConverter.convert(clashYaml));
     const names = output["proxy-groups"].map((group: { name: string }) => group.name);
+    expect(names[0]).toBe("ZackCloud");
     expect(names).toContain("🚀 扎克云 · 自动选择");
     expect(names).toContain("👆 扎克云 · 手动选择");
     expect(names).toContain("♻️ 扎克云 · 故障转移");
@@ -48,6 +49,22 @@ describe("Clash converter", () => {
     expect(names).toContain("🇯🇵 扎克云 · 日本");
     expect(names).toContain("🇬🇧 扎克云 · 英国");
     expect(names).not.toContain("🇸🇬 扎克云 · 新加坡");
+    const primary = output["proxy-groups"].find((group: { name: string }) => group.name === "ZackCloud");
+    const proxyNames = output.proxies.map((proxy: { name: string }) => proxy.name);
+    expect(primary.type).toBe("select");
+    expect(primary.proxies).toContain("🚀 扎克云 · 自动选择");
+    expect(proxyNames.every((name: string) => primary.proxies.includes(name))).toBe(true);
+  });
+
+  it("rewrites rules and sub-rules that target removed upstream groups or renamed nodes", () => {
+    const input = `proxies:\n  - { name: HK A, type: ss, server: a.invalid }\nproxy-groups:\n  - { name: Upstream Group, type: select, proxies: [HK A] }\nrules:\n  - DOMAIN-SUFFIX,example.invalid,Upstream Group\n  - IP-CIDR,192.0.2.0/24,HK A,no-resolve\n  - MATCH,DIRECT\nsub-rules:\n  local:\n    - DOMAIN,local.invalid,Upstream Group\n`;
+    const output = parse(clashConverter.convert(input));
+    expect(output.rules).toEqual([
+      "DOMAIN-SUFFIX,example.invalid,ZackCloud",
+      "IP-CIDR,192.0.2.0/24,🇭🇰 扎克云 · 香港 01,no-resolve",
+      "MATCH,DIRECT",
+    ]);
+    expect(output["sub-rules"].local).toEqual(["DOMAIN,local.invalid,ZackCloud"]);
   });
 
   it("has no dangling group references", () => {
@@ -55,6 +72,8 @@ describe("Clash converter", () => {
     const valid = new Set<string>([
       ...output.proxies.map((proxy: { name: string }) => proxy.name),
       ...output["proxy-groups"].map((group: { name: string }) => group.name),
+      "DIRECT",
+      "REJECT",
     ]);
     for (const group of output["proxy-groups"] as Array<{ proxies: string[] }>) {
       expect(group.proxies.every((reference) => valid.has(reference))).toBe(true);
