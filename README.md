@@ -1,286 +1,887 @@
-# ZackCloud Lite（扎克云 Lite）
+# ZackCloud Lite ☁️
 
-ZackCloud Lite V0.7.0 是供少数朋友免费使用的私人订阅整理与静态分发服务。正式门户为 `https://zackcloud.site`，正式朋友订阅入口为 `https://sub.zackcloud.site`；V0.3/V0.4 的 Cloudflare Worker、KV snapshot 和 updater 数据链路保持不变。Worker 只分发预生成配置，不承担代理流量，也不在朋友刷新订阅时访问上游。
+一个基于 **Cloudflare Workers、D1、KV 和 GitHub Actions** 构建的轻量级订阅分发与用户管理系统。
 
-V0.6 新增彼此独立的用户门户 Worker并完成安全加固；V0.7 将隔离的 production Portal、D1 和 Subscription Worker 提升到正式域名。门户负责注册、登录、审批和订阅凭据生命周期；订阅 Worker 继续只负责认证和分发。
+🌐 **Website:** https://zackcloud.site
 
-## V0.7 双 Worker 架构
+> 当前主要作为一个给朋友们使用的小型公益项目，同时也是我学习 Web、Cloudflare、Git 和工程化开发过程中的实践项目。
 
-```text
-浏览器 → zackcloud.site → Portal Worker → D1 AUTH_DB
-Clash / Mihomo → sub.zackcloud.site → Subscription Worker → D1 AUTH_DB → KV snapshot
-管理员 → Portal Worker → 审批 / 禁用 / 轮换 / 审计
-```
+---
 
-- `portal/` 是独立的 `zackcloud-portal` Worker，拥有独立 Wrangler 配置和 D1 migration。
-- 新用户注册后状态为 `PENDING`，只有管理员审批成功才会在同一 D1 batch 中创建订阅凭据并变为 `APPROVED`。
-- 用户登录后可看到申请状态；仅已审批且未过期的用户能通过受保护 API 获取自己的订阅地址。初始 HTML 不包含原始 token。
-- Subscription Worker 优先用 token 的 SHA-256 查 D1；查不到或 D1 暂不可用时继续兼容现有 `FRIENDS_CONFIG_JSON` / `ALLOWED_TOKENS`。D1 中明确存在但已禁用、拒绝或过期的记录不会回退绕过状态。
-- 现有 Friend Management CLI 保留作为恢复与兼容工具，Portal 不读取或依赖本地 `friends.json`。
+## ☁️ ZackCloud 是什么？
 
-### D1 schema 与本地开发
+这是给 **扎克的好朋友们** 用的一个私人公益订阅小站。
 
-`portal/migrations/0001_auth.sql` 创建 `users`、`subscription_credentials`、`sessions` 和 `audit_logs`。本地 D1 状态保存在 Wrangler 的忽略目录中，不得提交。
+需要使用的 hxd 可以直接 **私信扎克获取邀请码** 😎
 
-所有命令仍必须在 WSL 中运行：
+注册完成后不会自动开通，需要等待管理员人工审核。
 
-```bash
-npm run db:migrate:local
-npm run portal:test
-npm run portal:dev
-```
+审核通过以后，每个用户都会获得自己的 **专属订阅地址**，可以导入 Mihomo / Clash Compatible 客户端使用。
 
-本地门户由 Wrangler 提供；注册、登录、审批、禁用、启用、设置期限、轮换、删除和审计均有自动化生命周期测试。`deploy:dry-run` 会分别构建 Subscription Worker 和 Portal Worker，但不会部署。
+> ZackCloud 不是商业机场，也不提供公开注册服务。
 
-### 门户 secrets 与安全模型
+---
 
-生产配置只应通过 Worker Secret 或 env binding 提供。所需名称为 `TOKEN_ENCRYPTION_KEY`、`ADMIN_USERNAME`、`ADMIN_PASSWORD_HASH`，可选名称为 `REGISTRATION_INVITE_CODE_HASH`、`TURNSTILE_SITE_KEY`、`TURNSTILE_SECRET_KEY`、`PORTAL_ORIGIN`、`ZACKCLOUD_PUBLIC_BASE_URL`。不要把值写入 Git、README 或 shell 历史。
+## ✨ Features
 
-- 用户密码使用运行时原生 WebCrypto PBKDF2-HMAC-SHA256（16 字节随机 salt，默认 20,000 次）；该参数按 Cloudflare Workers Free plan 的真实 CPU 指标选定，管理员密码使用同一版本化可移植 hash 格式。
-- 管理员 hash 工具只从 stdin 读取密码，不接受命令行参数：`npm run admin:hash-password`。
-- 订阅 token 使用 256-bit 安全随机数；D1 保存 SHA-256 查找值和 AES-256-GCM 密文，不保存明文。
-- 会话是不可预测的 opaque token，D1 只保存 hash；cookie 使用 `HttpOnly`、`Secure`、`SameSite=Lax`。
-- 所有状态变更同时验证精确 Origin 和 CSRF token。门户发送 CSP、frame、MIME sniffing、referrer 和 permissions 安全响应头。
-- staging 默认要求 SHA-256 后的邀请码；明文邀请码不得进入源码、Git 或日志。
-- `/login` 使用按规范化用户名区分的 Cloudflare Rate Limiting binding（10 次/60 秒），`/admin/login` 使用独立固定类别（5 次/60 秒）；超限请求在密码派生前返回 429。
-- Cloudflare Turnstile 为可选项；配置 site/secret key 后注册页和服务端验证同时启用，未配置时不加载第三方脚本。
+- 👤 用户注册与登录
+- ✅ 管理员人工审核
+- 🔑 每位用户独立订阅凭据
+- 🔄 自动订阅更新
+- 🚀 Mihomo / Clash 配置转换
+- ☁️ Cloudflare Workers Serverless 架构
+- 🗃️ Cloudflare D1 用户数据存储
+- ⚡ Cloudflare KV Subscription Snapshot
+- 🔐 Token 加密存储
+- 🛡️ CSRF 防护
+- 🚦 Rate Limiting
+- 🧪 自动化测试
+- 🔀 Production / Staging 环境隔离
+- 🤖 GitHub Actions 自动更新上游订阅
 
-管理员账号不是 D1 普通用户。上线前通过 secrets 配置管理员用户名和 hash；审批、拒绝、禁用、启用、过期时间、token 轮换和删除都会写入 `audit_logs`。`portal/wrangler.production.jsonc` 和 `wrangler.production.jsonc` 只保存 production 的非敏感绑定与域名配置，所有 secret 仍必须通过 Wrangler stdin 设置。
+---
 
-### Staging 与 production 隔离
+## 🏗️ Architecture
 
-Staging 使用 `zackcloud-auth`、`zackcloud-portal-staging`、`zackcloud-lite-staging`、`portal-staging.zackcloud.site` 和 `sub-staging.zackcloud.site`。Production 使用独立的 `zackcloud-auth-prod`、`zackcloud-portal`、`zackcloud-lite`、`zackcloud.site` 和 `sub.zackcloud.site`。两套环境共享只读分发用 KV snapshot，但 D1、登录限流 namespace 与 Worker secrets 必须隔离。
+ZackCloud Lite 将用户系统和订阅分发拆成了两条相对独立的链路。
 
-首次准备或核对远程 migration 时必须明确使用 `--remote`：
-
-```bash
-npx wrangler d1 migrations list zackcloud-auth --remote --config portal/wrangler.jsonc
-npx wrangler d1 migrations apply zackcloud-auth --remote --config portal/wrangler.jsonc
-```
-
-Portal 缺少任一强制 secret 时不得部署。下面的 WSL 模板不会把密码、hash 或加密密钥写入参数、文件或终端标准输出：
-
-```bash
-read -r -p "Admin username: " ZACKCLOUD_ADMIN_USERNAME_INPUT
-printf '%s' "$ZACKCLOUD_ADMIN_USERNAME_INPUT" | npx wrangler secret put ADMIN_USERNAME --config portal/wrangler.jsonc
-unset ZACKCLOUD_ADMIN_USERNAME_INPUT
-
-read -r -s -p "Admin password: " ZACKCLOUD_ADMIN_PASSWORD_INPUT
-printf '\n'
-printf '%s' "$ZACKCLOUD_ADMIN_PASSWORD_INPUT" \
-  | npm run --silent admin:hash-password \
-  | npx wrangler secret put ADMIN_PASSWORD_HASH --config portal/wrangler.jsonc
-unset ZACKCLOUD_ADMIN_PASSWORD_INPUT
-
-openssl rand -base64 32 \
-  | tr '+/' '-_' \
-  | tr -d '=\n' \
-  | npx wrangler secret put TOKEN_ENCRYPTION_KEY --config portal/wrangler.jsonc
-```
-
-`TOKEN_ENCRYPTION_KEY` 必须解码为 32 bytes；上述命令直接生成符合代码要求的 base64url 值并通过管道提交。设置后只核对 secret 名称，不读取值：
-
-```bash
-npx wrangler secret list --config portal/wrangler.jsonc
-```
-
-只有确认三项名称齐全后，才可部署 `zackcloud-portal-staging`。Turnstile 在 staging 可暂不配置，相关 binding 与服务端验证支持保留。
-
-## 三条数据流
-
-订阅更新：
+### Subscription Pipeline
 
 ```text
-Updater → upstream → converter → validator → Cloudflare KV
+Upstream Subscription
+        │
+        ▼
+ GitHub Actions
+        │
+        ▼
+    Converter
+        │
+        ▼
+ Cloudflare KV
+        │
+        ▼
+Subscription Worker
+        │
+        ▼
+ Mihomo / Clash
 ```
 
-用户刷新订阅：
+### User Pipeline
 
 ```text
-Clash / Mihomo → Cloudflare Worker → token auth → KV snapshot
+       User
+        │
+        ▼
+ Portal Worker
+        │
+        ▼
+ Cloudflare D1
+        │
+        ▼
+Admin Approval
+        │
+        ▼
+Subscription Credential
 ```
 
-真实代理流量：
+Portal 主要负责：
+
+- 注册
+- 登录
+- 管理员审核
+- 用户状态管理
+- 专属订阅凭据生命周期
+
+Subscription Worker 主要负责：
+
+- 验证订阅凭据
+- 从 KV 读取最新订阅 Snapshot
+- 向 Mihomo / Clash 客户端分发配置
+
+这样用户系统和实际订阅更新逻辑可以相对独立地运行。
+
+---
+
+# 🚀 给 hxd 的使用教程
+
+整个流程其实很简单：
 
 ```text
-Clash / Mihomo → 直接连接原上游 proxy node → Internet
+找扎克拿邀请码
+      ↓
+注册 ZackCloud
+      ↓
+等待审核
+      ↓
+登录
+      ↓
+复制专属订阅
+      ↓
+导入客户端
+      ↓
+选择节点
+      ↓
+开冲（） 🚀
 ```
 
-开发者电脑不需要常开。GitHub updater 可用时每 6 小时自动更新；如果 GitHub runner 被上游拒绝，可以偶尔在本地运行 Publisher，朋友继续读取 KV 中的 last-known-good snapshot。
+---
 
-## V0.3 核心链路
+## 1️⃣ 获取邀请码
 
-- `GET /health`：返回服务名和 `0.3.0` 版本，不暴露 KV 或上游状态。
-- `GET /`：私人服务中文首页。
-- `GET /sub/:token`：验证朋友后读取 `SUBSCRIPTION_STORE` 的 `subscription:current`。
-- Snapshot 严格验证 schema、YAML、代理数量和 SHA-256。
-- 订阅支持强 ETag；匹配 `If-None-Match` 时返回 `304`。
-- 仅从 snapshot 透传 `subscription-userinfo` 和 `profile-update-interval`。
-- KV 缺失、JSON 损坏、schema 不支持、YAML 为空或 hash 不匹配统一返回安全的 `503`，绝不实时回源。
-- `FRIENDS_CONFIG_JSON` 支持启用和过期时间；`ALLOWED_TOKENS` 仅作为 legacy 兼容。
-- Publisher 在覆盖 current 前验证全部节点非名称字段、名称唯一性、代理组引用和 metadata 白名单。
-- 上游请求使用 `clash.meta` User-Agent，限制 10 秒和 5 MiB。
+ZackCloud 暂时不提供公开邀请码。
 
-架构取舍详见 [docs/design-v0.3.md](docs/design-v0.3.md)。
+需要使用的好几把哥们 **直接私信扎克** 即可。
 
-## 强制 WSL 开发环境
+拿到邀请码以后就可以开始注册。
 
-本项目位于 Windows D 盘，但所有 Node/npm/Vitest/Wrangler 命令必须从 WSL 执行，避免 Windows 与 Linux 原生依赖混装：
+---
 
-```powershell
-wsl.exe bash -lc 'cd "/mnt/d/扎克云/zackcloud-lite" && npm ci'
-wsl.exe bash -lc 'cd "/mnt/d/扎克云/zackcloud-lite" && npm test'
+## 2️⃣ 注册 ZackCloud
+
+打开：
+
+**https://zackcloud.site**
+
+点击右上角：
+
+**「申请注册」**
+
+填写：
+
+- 用户名
+- 显示名称
+- 密码
+- 确认密码
+- 邀请码
+
+![ZackCloud 注册页面](docs/images/register.png)
+
+填写完成后点击：
+
+**「提交申请」**
+
+---
+
+## 3️⃣ 等待审核
+
+提交注册以后不会马上开通。
+
+你的账号首先会进入等待审核状态：
+
+```text
+PENDING
+   ↓
+管理员审核
+   ↓
+APPROVED
 ```
 
-进入 WSL 后也可以直接运行：
+扎克看到申请并确认身份以后，会在管理后台手动通过。
+
+审核通过后即可正常登录 ZackCloud。
+
+---
+
+## 4️⃣ 登录并复制专属订阅
+
+审核通过以后重新打开：
+
+**https://zackcloud.site**
+
+点击右上角：
+
+**「登录」**
+
+登录成功以后会进入用户 Dashboard。
+
+![ZackCloud 用户 Dashboard](docs/images/dashboard.png)
+
+在：
+
+### 「专属订阅」
+
+区域中点击：
+
+**「复制订阅地址」**
+
+即可获得属于你自己的订阅链接。
+
+> ⚠️ 这个链接相当于你的私人凭据，请不要截图公开、上传到 GitHub 或随意转发给其他人。
+
+---
+
+# 📱 5️⃣ 下载客户端
+
+目前推荐使用：
+
+## FlClash
+
+下载页面：
+
+**https://flclash.cc/en/download**
+
+支持：
+
+- Windows
+- Android
+- macOS
+- Linux
+
+也可以使用其他支持 Mihomo / Clash 配置的客户端，例如：
+
+- Mihomo Party
+- Clash Verge Rev
+- 其他 Mihomo Compatible 客户端
+
+如果你不知道选哪个：
+
+> **直接使用 FlClash 即可。**
+
+---
+
+# 🔗 6️⃣ 导入 ZackCloud
+
+安装并打开客户端后：
+
+1. 找到配置 / Profiles / 订阅相关页面
+2. 添加一个新的远程订阅
+3. 粘贴刚才从 ZackCloud 复制的专属订阅地址
+4. 保存
+5. 手动更新一次订阅
+6. 进入代理 / 节点页面
+7. 选择一个可用节点
+8. 开启系统代理
+
+正常情况下，更新完成以后会看到多个地区的代理节点。
+
+---
+
+# 🌏 7️⃣ 选择节点
+
+如果不知道选哪个，可以优先使用：
+
+### 🚀 扎克云 · 自动选择
+
+让客户端自动选择当前延迟较好的节点。
+
+也可以根据实际情况手动选择：
+
+- 🇭🇰 香港
+- 🇸🇬 新加坡
+- 🇯🇵 日本
+- 🇺🇸 美国
+- 🇬🇧 英国
+- 其他地区
+
+某个节点偶尔出现 `Timeout` 并不一定代表整个 ZackCloud 出现故障。
+
+换一个延迟正常的节点即可。
+
+---
+
+# 🧭 8️⃣ 推荐使用规则模式
+
+日常使用推荐：
+
+## 「规则」模式
+
+规则模式下，客户端会根据配置判断哪些流量需要代理、哪些流量可以直接连接。
+
+通常比把所有流量全部塞进代理更加适合日常使用。
+
+如果需要使用：
+
+## 「全局」模式
+
+记得进入客户端中的：
+
+```text
+GLOBAL
+```
+
+策略组，并选择：
+
+```text
+ZackCloud
+```
+
+或者选择一个真实代理节点。
+
+### 不要误选：
+
+```text
+DIRECT
+REJECT
+```
+
+否则可能出现：
+
+```text
+规则模式正常
+全局模式全部 Timeout
+```
+
+的情况。
+
+---
+
+# ❓ FAQ
+
+## 为什么注册以后不能马上使用？
+
+因为 ZackCloud 使用人工审核。
+
+注册完成以后账号会先处于：
+
+```text
+PENDING
+```
+
+只有管理员审核通过进入：
+
+```text
+APPROVED
+```
+
+以后才能正常获得并使用订阅。
+
+---
+
+## 为什么邀请码不公开？我都能知道你扎克是谁还要我私信找你？
+
+ZackCloud 目前只给认识的朋友使用。
+
+邀请码提供第一层限制，注册以后仍然需要我人工审核。
+
+这样可以减少：
+
+- 垃圾注册
+- 自动化脚本注册
+- 无意义请求
+- 陌生用户滥用服务
+
+需要使用直接我即可。
+
+---
+
+## 为什么导入订阅以后没有节点？
+
+首先尝试：
+
+**手动更新一次订阅。**
+
+如果还是没有节点：
+
+1. 确认复制的是完整的 ZackCloud 专属订阅地址
+2. 删除客户端中的旧订阅
+3. 从 ZackCloud Dashboard 重新复制订阅地址
+4. 再次添加
+5. 手动更新订阅
+
+---
+
+## 为什么有一些节点显示 Timeout？
+
+节点状态本身可能随时发生变化。
+
+如果某个节点显示 Timeout：
+
+- 换一个延迟正常的节点
+- 或者直接使用「自动选择」
+
+只要其他节点能够正常测速和连接，一般不代表 ZackCloud 整体出现故障。
+
+---
+
+## 为什么规则模式可以用，全局模式却不行？
+
+先检查客户端中的：
+
+```text
+GLOBAL
+```
+
+策略组当前选择了什么。
+
+应该选择：
+
+- ZackCloud
+- 自动选择
+- 某个真实代理节点
+
+如果选择：
+
+```text
+DIRECT
+```
+
+流量不会经过代理。
+
+如果选择：
+
+```text
+REJECT
+```
+
+网络请求会直接被拒绝。
+
+---
+
+## 我的订阅地址可以发给别人吗？
+
+### 不要分享。
+
+每个 ZackCloud 用户都有自己的专属订阅凭据。
+
+请不要：
+
+- 转发给其他人
+- 发到群里
+- 上传到 GitHub
+- 截图泄露完整链接
+- 放到任何公开网站
+
+ZackCloud 目前属于朋友之间使用的公益性质小池子，**整个池子每月目前只有约 100 GB 的流量额度**。
+
+大家实际上共享的是一个有限的公共流量池。
+
+如果把自己的订阅继续分享给其他人，对方使用产生的流量同样会消耗这个池子的公共额度。
+
+一旦公共额度被耗尽：
+
+> **别人用不了了，你自己也用不了了。**
+
+所以最简单的原则就是：
+
+### 自己用自己的订阅，不要二次分享。
+
+如果你的朋友也需要使用，让他直接联系扎克申请自己的账号即可。
+
+---
+
+# 👨‍💻 For Developers
+
+如果你只是想使用 ZackCloud，看到这里其实已经够了。
+
+下面主要记录这个项目本身的技术实现。
+
+ZackCloud Lite 最开始只是为了方便几个朋友使用。
+
+后来随着实际使用需求增加，逐渐加入了：
+
+- 用户系统
+- 管理员审核
+- 独立订阅凭据
+- 自动订阅更新
+- KV Snapshot
+- D1 数据库
+- 加密存储
+- Rate Limiting
+- CSRF 防护
+- Production / Staging 隔离
+- GitHub Actions 自动化
+
+最后慢慢变成了一个完整的小型 Serverless Web 项目。
+
+这个项目本身也是我的一个学习项目。
+
+如果代码里存在：
+
+- 不够优雅的实现
+- 不合理的架构
+- 潜在 Bug
+- 安全问题
+- 可以优化的地方
+
+非常欢迎指出。
+
+---
+
+# 🧰 Tech Stack
+
+## Backend / Runtime
+
+- TypeScript
+- Cloudflare Workers
+
+## Database
+
+- Cloudflare D1
+
+## Subscription Distribution
+
+- Cloudflare KV
+
+## Automation
+
+- GitHub Actions
+
+## Deployment
+
+- Wrangler
+
+## Testing
+
+- Vitest
+- TypeScript Typecheck
+- ESLint
+- Custom Security Scan
+
+## Client Configuration
+
+- Mihomo / Clash YAML
+
+---
+
+# 🔐 Security Design
+
+ZackCloud 的安全原则之一是：
+
+> **生产环境 Secret 不进入 Git。**
+
+生产环境中的敏感配置通过：
+
+- Cloudflare Worker Secrets
+- GitHub Actions Secrets
+
+进行管理。
+
+包括但不限于：
+
+```text
+UPSTREAM_SUBSCRIPTION_URL
+TOKEN_ENCRYPTION_KEY
+ADMIN_PASSWORD_HASH
+REGISTRATION_INVITE_CODE_HASH
+CLOUDFLARE_API_TOKEN
+```
+
+仓库中只应该出现变量名称，而不应该出现真实值。
+
+---
+
+## 🔑 Password Storage
+
+用户密码不会以明文形式存储。
+
+当前密码派生方案使用：
+
+```text
+PBKDF2-HMAC-SHA256
+WebCrypto
+Random Salt
+20,000 iterations
+```
+
+管理员密码使用相同的版本化可移植 Hash 格式。
+
+---
+
+## 🎫 Subscription Credential
+
+每位获批用户拥有独立的 Subscription Credential。
+
+用户拿到的是类似：
+
+```text
+https://sub.zackcloud.site/sub/<USER_TOKEN>
+```
+
+形式的专属订阅地址。
+
+真实 Token 不应进入源码或 Git。
+
+Portal 对需要保存的订阅凭据进行加密处理，Subscription Worker 则负责验证访问权限并分发订阅。
+
+---
+
+## 🛡️ CSRF Protection
+
+Portal 对需要修改服务端状态的请求进行 CSRF 防护，包括：
+
+- Session 绑定
+- CSRF Token
+- Cookie 校验
+- Origin 检查
+- Same-Origin Navigation 检查
+
+---
+
+## 🚦 Rate Limiting
+
+用户登录与管理员登录使用独立的 Cloudflare Rate Limiting。
+
+当前分别限制：
+
+```text
+User Login
+10 requests / 60 seconds
+
+Admin Login
+5 requests / 60 seconds
+```
+
+Rate Limit 会在昂贵的密码派生计算之前生效，用于降低暴力登录和无意义请求产生的资源消耗。
+
+---
+
+# 🗃️ Cloudflare D1
+
+D1 主要负责保存：
+
+- 用户
+- 用户状态
+- Password Hash / Salt
+- Subscription Credential
+- Session
+- Audit Log
+
+用户生命周期主要包含：
+
+```text
+PENDING
+APPROVED
+REJECTED
+DISABLED
+```
+
+只有有效且已经批准的用户才能正常获得订阅服务。
+
+---
+
+# ⚡ KV Snapshot
+
+ZackCloud 不会让每一个朋友的客户端请求都实时访问上游订阅。
+
+订阅更新链路大致是：
+
+```text
+GitHub Actions
+      │
+      ▼
+Fetch Upstream
+      │
+      ▼
+Validate
+      │
+      ▼
+Convert
+      │
+      ▼
+Cloudflare KV Snapshot
+      │
+      ▼
+Subscription Worker
+      │
+      ▼
+Client
+```
+
+Subscription Worker 只需要读取已经经过转换与验证的 Snapshot。
+
+同时支持：
+
+- ETag
+- HTTP 304
+- Snapshot Validation
+- Last Known Good Snapshot
+
+这样即使某一次上游更新发生异常，也可以尽量避免直接把坏配置分发给所有用户。
+
+---
+
+# 🔀 Production / Staging
+
+ZackCloud 将正式环境和测试环境分离。
+
+```text
+Production
+├── Portal Worker
+├── Subscription Worker
+└── Production D1
+
+Staging
+├── Portal Worker
+├── Subscription Worker
+└── Staging D1
+```
+
+Production 与 Staging 拥有独立的：
+
+- 用户数据库
+- Portal Worker
+- Subscription Worker
+- Worker Secrets
+- 登录 Rate Limit Namespace
+
+这样可以尽量避免测试代码直接影响正式用户。
+
+---
+
+# 🤖 GitHub Actions
+
+GitHub Actions 定时负责获取并更新 Subscription Snapshot。
+
+整体流程：
+
+```text
+Scheduled / Manual Action
+          │
+          ▼
+Fetch Subscription
+          │
+          ▼
+Safe Validation
+          │
+          ▼
+Convert Mihomo YAML
+          │
+          ▼
+Validate Structure
+          │
+          ▼
+Upload KV Snapshot
+```
+
+真实上游订阅地址只存在于 GitHub Actions Secret 中，不进入公开仓库。
+
+---
+
+# 🧪 Testing
+
+项目在部署前会运行：
 
 ```bash
-cd "/mnt/d/扎克云/zackcloud-lite"
-npm ci
 npm test
 npm run typecheck
 npm run lint
-npm run security-scan
-npm run deploy:dry-run
+npm run security:scan
 ```
 
-`deploy:dry-run` 已明确指定 staging 环境，不会出现多环境歧义，也不会部署。
+当前项目拥有 **200+ 自动化测试**。
 
-## 本地 Publisher
+覆盖内容包括：
 
-`.dev.vars` 只保存在本机并被 Git 忽略。其中的 `UPSTREAM_SUBSCRIPTION_URL` 仅供 Publisher 使用，不再是 Worker 运行时依赖。
+- 用户注册
+- 用户登录
+- 管理员登录
+- 注册邀请码
+- 用户审核生命周期
+- Token 生命周期
+- D1
+- KV Snapshot
+- Subscription Worker
+- ETag
+- HTTP 304
+- Rate Limiting
+- CSRF
+- Production / Staging 隔离
+- Mihomo 配置结构
+- Proxy Group 引用完整性
+- Legacy Compatibility
 
-只构建和验证，不写 KV：
+---
 
-```bash
-npm run update:dry-run
-```
+# 📌 Project Status
 
-验证成功并发布到 staging KV：
+Current Version:
 
-```bash
-npm run update:local
-```
+## ZackCloud Lite v0.7
 
-命令只输出 HTTP 状态、格式、数量、地区/协议聚合、验证结果和 hash 前 8 位；不会输出上游地址、节点、订阅正文或完整 hash。临时 snapshot 保存在系统临时目录，权限为 `0600`，结束时主动删除。
+目前已经完成：
 
-## Staging KV 初始化
+- ✅ 用户注册
+- ✅ 用户登录
+- ✅ 管理员审核
+- ✅ 用户拒绝
+- ✅ 用户禁用 / 恢复
+- ✅ 用户删除
+- ✅ 独立 Subscription Credential
+- ✅ Token Rotation
+- ✅ Production Deployment
+- ✅ Staging Environment
+- ✅ Cloudflare D1
+- ✅ Cloudflare KV Snapshot
+- ✅ GitHub Actions 自动更新
+- ✅ Mihomo / Clash 配置转换
+- ✅ Mihomo 客户端真实订阅导入
+- ✅ 真实代理节点连接
+- ✅ Rule Mode
+- ✅ Global Mode
+- ✅ ETag / HTTP 304
+- ✅ 自动化测试
+- ✅ Security Scan
 
-先检查现有 namespace：
+项目目前已经完成真实客户端的 End-to-End 验证。
 
-```bash
-npm run setup:kv
-```
+---
 
-只有确认需要创建时才执行：
+# 💡 Feedback & Contributing
 
-```bash
-npm run setup:kv -- --create
-```
+这个项目仍然还有很多可以继续优化的地方。
 
-脚本只创建或复用 `zackcloud-lite-staging-SUBSCRIPTION_STORE`，并更新 staging 的 `SUBSCRIPTION_STORE` binding；不会删除资源、创建 production Worker 或修改 DNS。
+如果你对下面这些方向比较熟：
 
-## Friends 配置
+- Cloudflare Workers
+- Serverless Architecture
+- Cloudflare D1
+- Cloudflare KV
+- Web Security
+- Authentication
+- Cryptography
+- Rate Limiting
+- Mihomo / Clash
+- GitHub Actions
+- TypeScript
+- UI / UX
+- Git / CI/CD
+- 软件工程
 
-推荐把以下内容作为 staging Worker Secret `FRIENDS_CONFIG_JSON`，真实值不得写入仓库：
+非常欢迎提出建议。
 
-```json
-[
-  {
-    "token": "example-token-a",
-    "name": "friend-a",
-    "enabled": true,
-    "expiresAt": null
-  }
-]
-```
+如果发现：
 
-未知、禁用、过期和格式非法的 token 都统一返回 `404`。旧的 `ALLOWED_TOKENS` 暂时继续支持。
+- Bug
+- 安全问题
+- 架构问题
+- 不合理的代码
+- 可以优化的实现
+- UI / UX 问题
+- 文档错误
 
-## Friend Management
+欢迎提交 **GitHub Issue**。
 
-正式 friend store 默认位于 `~/.local/share/zackcloud-lite/friends.json`。目录权限为 `0700`，文件权限为 `0600`，更新采用同目录临时文件、同步落盘后原子 rename。可通过 `ZACKCLOUD_FRIENDS_FILE` 指向另一个私有文件；该文件永远不能提交到 Git。
+如果只是有一些想法，也欢迎直接告诉扎克 😎
 
-`friend:add`、`friend:rotate` 和 `friend:add-and-deploy` 默认生成 `https://sub.zackcloud.site/sub/<token>`。`ZACKCLOUD_PUBLIC_BASE_URL` 仍可覆盖入口，例如用于隔离环境；`workers.dev` 地址只保留为调试或 staging 备用入口，不再是朋友默认地址。
+> 这个项目本身也是我的学习项目。
+>
+> 如果代码里有写得不够优雅、设计得不合理或者存在更好的工程实现，非常欢迎指出。
 
-从 V0.3 已同步的私有 `staging-friends.json` 首次迁移时，可运行 `npm run friends:migrate-staging`。该操作只在新 store 尚不存在时执行，保留现有凭据并补齐本地审计时间字段，不会打印配置正文。
+---
 
-以下示例必须在 WSL 中运行：
+# ⚠️ Disclaimer
 
-```bash
-npm run friend:add -- "Alice"
-npm run friend:list
-npm run friend:disable -- "Alice"
-npm run friend:enable -- "Alice"
-npm run friend:rotate -- "Alice"
-npm run friend:expire -- "Alice" "2026-12-31T23:59:59+08:00"
-npm run friend:expire -- "Alice" never
-npm run friend:remove -- "Alice" --yes
-```
+ZackCloud 主要用于：
 
-`friend:add` 和 `friend:rotate` 只在成功时输出一次新的完整订阅 URL；其他命令最多显示 token 最后 4 个字符。需要覆盖默认入口时，可设置 `ZACKCLOUD_PUBLIC_BASE_URL="https://example.invalid"`。
+- 个人学习
+- 技术研究
+- 软件开发实践
+- 受邀朋友之间的非商业使用
 
-把验证后的 friend store 安全写入 staging Worker Secret：
+使用者应自行遵守所在地法律法规以及相关网络服务的使用条款。
 
-```bash
-npm run friends:deploy
-```
+本项目不提供任何商业代理服务。
 
-JSON 通过 stdin 交给 Wrangler，不进入 shell 参数，也不打印正文。默认目标严格为 `zackcloud-lite-staging`；如确有需要可使用 `ZACKCLOUD_WORKER_NAME` 覆盖。新增并同步可以合并为：
+---
 
-```bash
-npm run friend:add-and-deploy -- "Bob"
-```
+# ⭐
 
-远端失败时本地新增记录会保留，命令会明确报告本地已更新、远端未更新，并且不会输出订阅 URL。
+如果这个项目对你有一点帮助，欢迎点个 Star ⭐
 
-使用明确提供的 staging URL 验证单个朋友：
+如果你看到代码以后觉得：
 
-```bash
-STAGING_URL="https://example.invalid" npm run friend:verify -- "Alice"
-```
+> **“这里写得真烂，我教你怎么改。”**
 
-校园网环境可额外设置 `ZACKCLOUD_TEST_PROXY`；代理地址不写入 Worker 或源码。
+也非常欢迎。
 
-只验证正式自定义域名时：
-
-```bash
-CUSTOM_DOMAIN_URL="https://sub.zackcloud.site" npm run verify:staging
-```
-
-命令只输出自定义域名的 health、订阅状态、ETag 验证和总结果，不输出 token、完整订阅 URL 或正文。
-
-旋转 token 会阻止旧链接继续刷新订阅，但无法即时删除朋友设备已经下载的节点连接信息。真正即时废除底层节点凭据，仍需由 upstream provider 更换相关凭据。
-
-## GitHub Actions updater
-
-[.github/workflows/update-subscription.yml](.github/workflows/update-subscription.yml) 支持手动触发和每 6 小时运行。仓库需要配置：
-
-- `UPSTREAM_SUBSCRIPTION_URL`
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_KV_NAMESPACE_ID`
-
-朋友 token 不进入 GitHub Actions。Updater 若遇到 `http_403`、`http_429`、`timeout`、`network_error`、`response_too_large` 或格式错误，会输出安全原因、失败退出且不写 KV。
-
-## Staging 部署顺序
-
-安全迁移顺序固定为：
-
-1. 创建或复用 staging KV namespace。
-2. 运行本地 Publisher，写入第一个验证通过的 snapshot。
-3. `npx wrangler deploy --env staging` 部署 V0.3 Worker。
-4. 通过本机现有 HTTP 代理验证 health、无效 token、有效 token 和 ETag `304`。
-5. 全部确认后，才可删除 staging Worker 中旧的 `UPSTREAM_SUBSCRIPTION_URL` Secret。
-
-不得把这些命令改为 top-level 或 production 部署。
-
-## 安全边界
-
-- 不记录请求 URL、token、上游地址、订阅正文、节点或代理凭据。
-- 不在项目目录保存真实 snapshot，不上传订阅 Artifact。
-- 不透传上游网站、Location、Cookie、Server 或异常正文。
-- D1 仅保存门户身份、加密订阅凭据、会话 hash 与安全审计；订阅 YAML 仍只保存在现有 KV snapshot，不进入 D1。
-- 不使用 R2、Durable Objects，也不把真实订阅、上游地址或客户端代理流量写入数据库。
-- 不实现 Xray、Mihomo、VLESS、Trojan、WireGuard、TCP、UDP 或 WebSocket 流量中转。
-- `.dev.vars`、`.env`、`node_modules`、`dist` 和 Wrangler 临时文件均被 Git 忽略。
+我会认真看的
